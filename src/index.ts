@@ -1,7 +1,14 @@
-import { Elysia } from "elysia";
+// Load environment variables first
+import dotenv from "dotenv";
+dotenv.config();
 
-const app = new Elysia().get("/", () => "Hello Elysia").listen(3000);
+import { app } from "./app";
+import { env } from "./core/config";
 
-console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
-);
+app.listen({
+  port: env.PORT,
+  hostname: env.HOSTNAME,
+});
+
+console.log(`🚀 Server is running on http://${env.HOSTNAME}:${env.PORT}`);
+console.log(`📁 Swagger docs at http://${env.HOSTNAME}:${env.PORT}/docs`);

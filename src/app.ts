@@ -1,0 +1,38 @@
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+import { Elysia } from "elysia";
+import { swagger } from "@elysiajs/swagger";
+import { apiRouter } from "./api";
+import { cors } from "@elysiajs/cors";
+
+export const app = new Elysia()
+  // Log all incoming requests
+  .onRequest(({ request }) => {
+    console.log(`Incoming Request: ${request.method} ${new URL(request.url).pathname}`);
+  })
+
+  .use(cors())
+
+  // Root & health
+  .get("/", () => ({ message: "Welcome to Elysia API" }))
+  .get("/health", () => ({ status: "ok" }))
+
+  // API routes
+  .use(apiRouter({ prefix: "/api" }))
+
+  // Swagger documentation
+  .use(
+    swagger({
+      path: "/docs",
+      documentation: {
+        info: {
+          title: "Elysia API Documentation",
+          version: "1.0.0",
+        },
+        tags: [
+          { name: "Users", description: "User Management Endpoints" },
+          { name: "Products", description: "Product Management Endpoints" },
+        ],
+      },
+    })
+  );
