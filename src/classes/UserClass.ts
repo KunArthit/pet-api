@@ -1,15 +1,12 @@
 import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import db from "../core/database";
 import type { UserModel } from "../models/UserModel";
+import { randomUUID } from "crypto";
 
-// กรณี join เอาชื่อ type/department เพิ่ม
-export type UserWithRelations = UserModel & {
-  type_name: string;
-  department_name: string;
-  department_description: string | null;
-};
-
-type CreateUserInput = Omit<UserModel, "user_id" | "created_at" | "updated_at"> & {
+type CreateUserInput = Omit<
+  UserModel,
+  "user_id" | "created_at" | "updated_at"
+> & {
   created_at?: Date;
   updated_at?: Date;
 };
@@ -25,13 +22,8 @@ export default class UserClass {
       "username",
       "email",
       "password",
-      "first_name",
-      "last_name",
       "phone",
-      "user_type_id",
-      "department_id",
-      "company_name",
-      "tax_id",
+      "role",
       "is_active",
     ];
 
@@ -52,23 +44,13 @@ export default class UserClass {
   // ===== Queries =====
 
   // Get all users (พร้อม join user_types + departments)
-  async getAllUsers(): Promise<UserWithRelations[]> {
-    const query = `
-      SELECT 
-        u.*,
-        ut.type_name,
-        d.department_name,
-        d.description AS department_description
-      FROM users AS u
-      JOIN user_types AS ut ON u.user_type_id = ut.type_id
-      JOIN departments AS d ON u.department_id = d.department_id
-      ORDER BY u.user_id DESC;
-    `;
+  async getAllUsers() {
+    const query = `SELECT * from users;`;
 
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.query<RowDataPacket[]>(query);
-      return rows as unknown as UserWithRelations[];
+      return rows as unknown as UserModel[];
     } catch (error) {
       console.error("Failed to fetch users:", error);
       throw new Error("Failed to fetch users");
@@ -78,12 +60,12 @@ export default class UserClass {
   }
 
   // Get user by ID (เฉพาะ users.*)
-  async getUserById(user_id: number): Promise<UserModel | null> {
-    const query = `SELECT * FROM users WHERE user_id = ? LIMIT 1;`;
+  async getUserById(uuid: string): Promise<UserModel | null> {
+    const query = `SELECT * FROM users WHERE id = ? LIMIT 1;`;
     const conn = await db.getConnection();
 
     try {
-      const [rows] = await conn.query<RowDataPacket[]>(query, [user_id]);
+      const [rows] = await conn.query<RowDataPacket[]>(query, [uuid]);
       return rows.length ? (rows[0] as unknown as UserModel) : null;
     } catch (error) {
       console.error("Failed to fetch user:", error);
@@ -94,31 +76,33 @@ export default class UserClass {
   }
 
   // Get user by ID (พร้อม join)
-  async getUserWithRelationsById(user_id: number): Promise<UserWithRelations | null> {
-    const query = `
-      SELECT 
-        u.*,
-        ut.type_name,
-        d.department_name,
-        d.description AS department_description
-      FROM users AS u
-      JOIN user_types AS ut ON u.user_type_id = ut.type_id
-      JOIN departments AS d ON u.department_id = d.department_id
-      WHERE u.user_id = ?
-      LIMIT 1;
-    `;
+  // async getUserWithRelationsById(
+  //   user_id: number
+  // ): Promise<UserWithRelations | null> {
+  //   const query = `
+  //     SELECT 
+  //       u.*,
+  //       ut.type_name,
+  //       d.department_name,
+  //       d.description AS department_description
+  //     FROM users AS u
+  //     JOIN user_types AS ut ON u.user_type_id = ut.type_id
+  //     JOIN departments AS d ON u.department_id = d.department_id
+  //     WHERE u.user_id = ?
+  //     LIMIT 1;
+  //   `;
 
-    const conn = await db.getConnection();
-    try {
-      const [rows] = await conn.query<RowDataPacket[]>(query, [user_id]);
-      return rows.length ? (rows[0] as unknown as UserWithRelations) : null;
-    } catch (error) {
-      console.error("Failed to fetch user (relations):", error);
-      throw new Error("Failed to fetch user");
-    } finally {
-      conn.release();
-    }
-  }
+  //   const conn = await db.getConnection();
+  //   try {
+  //     const [rows] = await conn.query<RowDataPacket[]>(query, [user_id]);
+  //     return rows.length ? (rows[0] as unknown as UserWithRelations) : null;
+  //   } catch (error) {
+  //     console.error("Failed to fetch user (relations):", error);
+  //     throw new Error("Failed to fetch user");
+  //   } finally {
+  //     conn.release();
+  //   }
+  // }
 
   // Get user by email
   async getUserByEmail(email: string): Promise<UserModel | null> {
@@ -153,40 +137,39 @@ export default class UserClass {
   }
 
   // Create user (คืนค่า user_id ที่ insert)
-  async createUser(payload: CreateUserInput): Promise<number> {
-    const now = new Date();
-
+  async createUser(payload: CreateUserInput): Promise<string> {
+    // 1. สร้าง UUID
+    const uuid = randomUUID(); 
+    
+    // 2. เตรียม Query (created_at, updated_at ปล่อยให้ DB จัดการ Default เอง)
     const query = `
-      INSERT INTO users
-        (username, email, password, first_name, last_name, phone,
-         user_type_id, department_id, company_name, tax_id, is_active,
-         created_at, updated_at)
-      VALUES
-        (?, ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?,
-         ?, ?);
+      INSERT INTO users 
+        (id, username, email, password, role, phone, is_active)
+      VALUES 
+        (?, ?, ?, ?, ?, ?, ?);
     `;
 
+    // 3. จัดการ Default value กรณี payload ไม่ได้ส่งมา
+    const role = payload.role || 'user';
+    const phone = payload.phone || null;
+    const isActive = payload.is_active ?? 1; // ใช้ ?? เพราะค่า 0 คือ false
+
     const values = [
+      uuid,
       payload.username,
       payload.email,
-      payload.password, // ควรเป็น hash แล้ว
-      payload.first_name,
-      payload.last_name,
-      payload.phone,
-      payload.user_type_id,
-      payload.department_id,
-      payload.company_name,
-      payload.tax_id,
-      payload.is_active,
-      payload.created_at ?? now,
-      payload.updated_at ?? now,
+      payload.password, // *ควร Hash มาก่อนเรียก function นี้
+      role,
+      phone,
+      isActive
     ];
 
     const conn = await db.getConnection();
     try {
-      const [result] = await conn.query<ResultSetHeader>(query, values);
-      return result.insertId;
+      // ResultSetHeader จะไม่มี insertId เพราะเรากำหนด ID เอง แต่เราจะ return uuid ที่เราสร้าง
+      await conn.query<ResultSetHeader>(query, values);
+      
+      return uuid; // คืนค่า UUID กลับไป
     } catch (error) {
       console.error("Failed to create user:", error);
       throw new Error("Failed to create user");
@@ -309,7 +292,10 @@ export default class UserClass {
   }
 
   // เช็คซ้ำ username
-  async existsUsername(username: string, excludeUserId?: number): Promise<boolean> {
+  async existsUsername(
+    username: string,
+    excludeUserId?: number
+  ): Promise<boolean> {
     const query = excludeUserId
       ? `SELECT 1 FROM users WHERE username = ? AND user_id <> ? LIMIT 1;`
       : `SELECT 1 FROM users WHERE username = ? LIMIT 1;`;

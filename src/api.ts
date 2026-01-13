@@ -1,11 +1,10 @@
 // api.ts
 import { Elysia } from "elysia";
-import wpUserController from "./controllers/UserController";
+import UserController from "./controllers/UserController";
+import AuthController from "./controllers/AuthController";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
-  const controllers = [
-    wpUserController
-  ];
+  const controllers = [UserController, AuthController];
 
   const app = new Elysia({
     prefix: config.prefix,
