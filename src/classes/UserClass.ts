@@ -136,12 +136,20 @@ export default class UserClass {
     }
   }
 
-  // Create user (คืนค่า user_id ที่ insert)
-  async createUser(payload: CreateUserInput): Promise<string> {
-    // 1. สร้าง UUID
-    const uuid = randomUUID(); 
-    
-    // 2. เตรียม Query (created_at, updated_at ปล่อยให้ DB จัดการ Default เอง)
+ // Create user (คืนค่า user_id ที่ insert)
+async createUser(payload: CreateUserInput): Promise<string> {
+  const uuid = randomUUID();
+  
+  // ✅ ตรวจสอบ email ซ้ำก่อน insert
+  const checkQuery = `SELECT id FROM users WHERE email = ? LIMIT 1;`;
+  const conn = await db.getConnection();
+
+  try {
+    const [existing] = await conn.query<RowDataPacket[]>(checkQuery, [payload.email]);
+    if (existing.length > 0) {
+      throw new Error("Email already exists");
+    }
+
     const query = `
       INSERT INTO users 
         (id, username, email, password, role, phone, is_active)
@@ -149,34 +157,40 @@ export default class UserClass {
         (?, ?, ?, ?, ?, ?, ?);
     `;
 
-    // 3. จัดการ Default value กรณี payload ไม่ได้ส่งมา
-    const role = payload.role || 'user';
+    const role = payload.role || "user";
     const phone = payload.phone || null;
-    const isActive = payload.is_active ?? 1; // ใช้ ?? เพราะค่า 0 คือ false
+    const isActive = payload.is_active ?? 1;
 
     const values = [
       uuid,
       payload.username,
       payload.email,
-      payload.password, // *ควร Hash มาก่อนเรียก function นี้
+      payload.password, // ต้องเป็น hash แล้ว
       role,
       phone,
-      isActive
+      isActive,
     ];
 
-    const conn = await db.getConnection();
-    try {
-      // ResultSetHeader จะไม่มี insertId เพราะเรากำหนด ID เอง แต่เราจะ return uuid ที่เราสร้าง
-      await conn.query<ResultSetHeader>(query, values);
-      
-      return uuid; // คืนค่า UUID กลับไป
-    } catch (error) {
-      console.error("Failed to create user:", error);
-      throw new Error("Failed to create user");
-    } finally {
-      conn.release();
+    await conn.query<ResultSetHeader>(query, values);
+
+    return uuid;
+  } catch (error) {
+    // ✅ ตรวจจับ error ชัดเจน (duplicate key / email exists)
+    if (
+      error instanceof Error &&
+      (error.message.includes("Email already exists") ||
+        error.message.includes("Duplicate entry"))
+    ) {
+      console.warn("⚠️ Email already exists:", payload.email);
+      throw new Error("Email already exists");
     }
+
+    console.error("Failed to create user:", error);
+    throw new Error("Failed to create user");
+  } finally {
+    conn.release();
   }
+}
 
   // Update user (partial) - จะอัปเดต updated_at ให้ด้วยเสมอ
   async updateUser(user_id: number, patch: UpdateUserPatch): Promise<boolean> {

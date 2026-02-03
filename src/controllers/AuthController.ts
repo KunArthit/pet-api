@@ -33,9 +33,9 @@ const authController = new Elysia({
       try {
         // A. ตรวจสอบ User/Pass
         const user = await Auth.login(body.email, body.password);
-
+  
         if (!user) {
-          // Log Failed ...
+          // log failed login
           LogService.createLog({
             user_id: null,
             action: "LOGIN_FAILED",
@@ -44,15 +44,24 @@ const authController = new Elysia({
             ip_address: request.headers.get("x-forwarded-for") || "unknown",
             user_agent: request.headers.get("user-agent") || "unknown",
           }).catch((e) => console.error("Log Error:", e));
-
+  
           set.status = 401;
           return {
             success: false,
-            message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง (หรือบัญชีถูกระงับ)",
+            message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
           };
         }
-
-        // B. สร้าง Access Token (JWT)
+  
+        // ✅ B. ตรวจสอบว่าผู้ใช้ยืนยันอีเมลแล้วหรือยัง
+        if (!user.email_verified) {
+          set.status = 403;
+          return {
+            success: false,
+            message: "กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ",
+          };
+        }
+  
+        // ✅ C. สร้าง Access Token
         const accessToken = await jwt.sign({
           id: user.id,
           role: user.role,
@@ -83,17 +92,17 @@ const authController = new Elysia({
           action: "LOGIN",
           entity_type: "SESSION",
           entity_id: user.id,
-          details: "User logged in successfully",
+          details: "User logged in successfully via Password",
           ip_address: request.headers.get("x-forwarded-for") || "unknown",
           user_agent: request.headers.get("user-agent") || "unknown",
         }).catch((e) => console.error("Log Error:", e));
-
-        // F. ส่ง Response กลับ (ไม่ต้องส่ง refreshToken ใน body แล้ว)
+  
         return {
           success: true,
           message: "Login successful",
-          accessToken: accessToken, // Frontend เก็บลง LocalStorage
-          user: user,
+          accessToken,
+          refreshToken,
+          user,
         };
       } catch (error) {
         console.error("Login Error:", error);

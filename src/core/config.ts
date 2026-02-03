@@ -29,6 +29,13 @@ const envSchema = z
       .default(8080)
       .describe("API port"),
 
+    FRONTEND_URL: z
+      .string()
+      .url()
+      .optional()
+      .default("http://localhost:5173")
+      .describe("Frontend base URL for email verification or redirects"),
+
     // Security
     CORS_ORIGINS: z
       .string()
@@ -100,7 +107,7 @@ const envSchema = z
       .string()
       .email()
       .optional()
-      .default("noreply@petterrain.com")
+      .default("arthit@kitsomboon.com")
       .describe("From email address"),
     COMPANY_NAME: z
       .string()
@@ -136,3 +143,7 @@ export type Environment = z.infer<typeof envSchema>;
 export const env: Environment = envServer.data;
 
 export const DATABASE_URI = `mysql://${env.MYSQL_USER}:${env.MYSQL_PASSWORD}@${env.MYSQL_HOST}:${env.MYSQL_PORT}/${env.MYSQL_DB}`;
+
+// ต่อท้ายไฟล์ config.ts
+console.log("✅ Config loaded for user:", env.SMTP_USER);
+console.log("✅ SMTP Port:", env.SMTP_PORT);

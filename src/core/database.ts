@@ -4,8 +4,8 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const db = mysql.createPool({
-  host: process.env.MYSQL_HOST, // NOT 'localhost'
-  port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : undefined, // convert to number
+  host: process.env.MYSQL_HOST,
+  port: process.env.MYSQL_PORT ? Number(process.env.MYSQL_PORT) : undefined,
   user: process.env.MYSQL_USER,
   password: process.env.MYSQL_PASSWORD,
   database: process.env.MYSQL_DB,
@@ -13,7 +13,7 @@ const db = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
-  timezone: '+00:00'
+  timezone: "+07:00", // ✅ ใช้เวลาประเทศไทยตรงกับ dayjs ฝั่ง Node
 });
 
 export default db;
