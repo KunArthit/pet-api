@@ -1,10 +1,10 @@
-// UserController.ts
+// controllers/UserController.ts
 import { Elysia, t } from "elysia";
 import bcrypt from "bcryptjs";
 
-// ✅ ปรับ path ให้ตรงโปรเจกต์คุณ
 import UserClass from "../classes/UserClass";
 import { UserModel } from "../models/UserModel";
+import { EmailVerification } from "../classes/EmailVerificationClass";
 
 const UserService = new UserClass();
 
@@ -20,12 +20,11 @@ const userController = new Elysia({
   prefix: "/users",
   tags: ["Users"],
 })
-  // Get all users
+
+  // ✅ Get all users
   .get("/", async () => {
     try {
       const users = await UserService.getAllUsers();
-      console.log(users);
-
       return users;
     } catch (error) {
       console.error(error);
@@ -33,7 +32,7 @@ const userController = new Elysia({
     }
   })
 
-  // Get user by ID
+  // ✅ Get user by UUID
   .get(
     "/:uuid",
     async ({ params }) => {
@@ -53,112 +52,110 @@ const userController = new Elysia({
     }
   )
 
-  // Get user with relations by ID (optional)
-  // .get(
-  //   "/:id/with-relations",
-  //   async ({ params }) => {
-  //     try {
-  //       const user = await UserService.getUserWithRelationsById(
-  //         Number(params.id)
-  //       );
-  //       if (!user) throw new Error("User not found");
-  //       return user;
-  //     } catch (error) {
-  //       console.error(error);
-  //       throw new Error("Failed to fetch user");
-  //     }
-  //   },
-  //   {
-  //     params: t.Object({
-  //       id: t.Number(),
-  //     }),
-  //   }
-  // )
-
-  // Create user
-  // .post(
-  //   "/",
-  //   async ({ body }) => {
-  //     try {
-  //       const insertId = await UserService.createUser(body);
-  //       return {
-  //         message: "User created successfully",
-  //         user_id: insertId,
-  //       };
-  //     } catch (error) {
-  //       console.error(error);
-  //       throw new Error("Failed to create user");
-  //     }
-  //   },
-  //   {
-  //     body: t.Object({
-  //       username: t.String({ minLength: 3 }),
-  //       email: t.String({ format: "email" }),
-  //       password: t.String({ minLength: 6 }),
-  //       first_name: t.String(),
-  //       last_name: t.String(),
-  //       phone: t.String(),
-  //       user_type_id: t.Number(),
-  //       department_id: t.Number(),
-  //       company_name: t.String(),
-  //       tax_id: t.String(),
-  //       is_active: t.Number(),
-  //     }),
-  //   }
-  // )
-
+  // ✅ Create user + send verification email
   .post(
     "/",
     async ({ body, set }) => {
       try {
-        // 1. Hash Password ก่อนส่งให้ Service
+        console.log("➡️ Starting user creation process...");
+
+        // Hash password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(body.password, salt);
 
-        // 2. เตรียมข้อมูล (Override password เดิมด้วย hash)
+        // Prepare payload
         const newUserPayload = {
           ...body,
           password: hashedPassword,
         } as CreateUserInput;
 
-        // 3. เรียก Service (จะได้ return เป็น UUID string)
+        // Create user
         const newUserId = await UserService.createUser(newUserPayload);
+        console.log("✅ Created user:", newUserId);
 
-        set.status = 201; // Created
+        // Create verification token
+        const token = await EmailVerification.create(newUserId);
+        console.log("✅ Created verification token:", token);
+
+        // Send verification email
+        await EmailVerification.sendVerifyEmail(body.email, token);
+        console.log("✅ Sent verification email");
+
+        set.status = 201;
         return {
-          message: "User created successfully",
-          user_id: newUserId, // ✅ เป็น UUID string
+          success: true,
+          message: "User created and verification email sent",
+          user_id: newUserId,
         };
       } catch (error) {
-        console.error(error);
+        console.error("❌ Error creating user or sending email:", error);
+
+        // ตรวจแยกกรณีอีเมลซ้ำโดยเฉพาะ
+        const message =
+          error instanceof Error ? error.message : String(error);
+
+        if (message === "Email already exists") {
+          set.status = 400;
+          return {
+            success: false,
+            message: "Email already exists",
+          };
+        }
+
         set.status = 500;
-        throw new Error("Failed to create user");
+        return {
+          success: false,
+          message: "Failed to create user or send verification email",
+          error: message,
+        };
       }
     },
     {
-      // ✅ Schema ตรงกับ DB ล่าสุด
       body: t.Object({
         username: t.String({ minLength: 3 }),
         email: t.String({ format: "email" }),
         password: t.String({ minLength: 6 }),
-        role: t.Optional(t.String()), // ส่งหรือไม่ส่งก็ได้ (Class มี default)
-        phone: t.Optional(t.String()), // ส่งหรือไม่ส่งก็ได้
-        is_active: t.Optional(t.Number()), // ส่งหรือไม่ส่งก็ได้
+        role: t.Optional(t.String()),
+        phone: t.Optional(t.String()),
+        is_active: t.Optional(t.Number()),
       }),
     }
   )
 
-  // Update user (partial)
+  .get("/check-verified", async ({ query, set }) => {
+    try {
+      const user = await UserService.getUserByEmail(query.email);
+      if (!user) {
+        set.status = 404;
+        return { success: false, message: "User not found" };
+      }
+      return { success: true, email_verified: user.email_verified };
+    } catch (error) {
+      console.error("Check verified error:", error);
+      set.status = 500;
+      return { success: false, message: "Internal server error" };
+    }
+  }, {
+    query: t.Object({
+      email: t.String({ format: "email" })
+    })
+  })
+
+  // ✅ Update user (partial)
   .put(
     "/:id",
     async ({ params, body }) => {
       try {
         const ok = await UserService.updateUser(Number(params.id), body);
         if (!ok) throw new Error("User not found or no fields to update");
-        return { message: "User updated successfully" };
+        return { success: true, message: "User updated successfully" };
       } catch (error) {
         console.error(error);
-        throw new Error("Failed to update user");
+        return {
+          success: false,
+          message: "Failed to update user",
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
     },
     {
@@ -183,7 +180,7 @@ const userController = new Elysia({
     }
   )
 
-  // Update password
+  // ✅ Update password
   .put(
     "/:id/password",
     async ({ params, body }) => {
@@ -193,10 +190,14 @@ const userController = new Elysia({
           body.password
         );
         if (!ok) throw new Error("User not found");
-        return { message: "Password updated successfully" };
+        return { success: true, message: "Password updated successfully" };
       } catch (error) {
         console.error(error);
-        throw new Error("Failed to update password");
+        return {
+          success: false,
+          message: "Failed to update password",
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
     },
     {
@@ -209,7 +210,7 @@ const userController = new Elysia({
     }
   )
 
-  // Activate/Deactivate
+  // ✅ Activate/Deactivate user
   .patch(
     "/:id/active",
     async ({ params, body }) => {
@@ -219,10 +220,14 @@ const userController = new Elysia({
           body.is_active
         );
         if (!ok) throw new Error("User not found");
-        return { message: "User active status updated successfully" };
+        return { success: true, message: "User active status updated successfully" };
       } catch (error) {
         console.error(error);
-        throw new Error("Failed to update active status");
+        return {
+          success: false,
+          message: "Failed to update active status",
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
     },
     {
@@ -235,17 +240,21 @@ const userController = new Elysia({
     }
   )
 
-  // Delete user
+  // ✅ Delete user
   .delete(
     "/:id",
     async ({ params }) => {
       try {
         const ok = await UserService.deleteUser(Number(params.id));
         if (!ok) throw new Error("User not found");
-        return { message: "User deleted successfully" };
+        return { success: true, message: "User deleted successfully" };
       } catch (error) {
         console.error(error);
-        throw new Error("Failed to delete user");
+        return {
+          success: false,
+          message: "Failed to delete user",
+          error: error instanceof Error ? error.message : String(error),
+        };
       }
     },
     {

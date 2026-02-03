@@ -30,12 +30,11 @@ const authController = new Elysia({
     "/login",
     async ({ body, jwt, set, request }) => {
       try {
-        // A. เรียกใช้ AuthClass เพื่อตรวจสอบ User/Pass
+        // A. ตรวจสอบ User/Pass
         const user = await Auth.login(body.email, body.password);
-
-        // กรณี Login ไม่ผ่าน
+  
         if (!user) {
-          // (Optional) เก็บ Log ความล้มเหลว
+          // log failed login
           LogService.createLog({
             user_id: null,
             action: "LOGIN_FAILED",
@@ -44,51 +43,51 @@ const authController = new Elysia({
             ip_address: request.headers.get("x-forwarded-for") || "unknown",
             user_agent: request.headers.get("user-agent") || "unknown",
           }).catch((e) => console.error("Log Error:", e));
-
+  
           set.status = 401;
           return {
             success: false,
-            message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง (หรือบัญชีถูกระงับ)",
+            message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
           };
         }
-
-        // กรณี Login ผ่าน... เริ่มกระบวนการสร้าง Token
-
-        // B. สร้าง Access Token (JWT)
+  
+        // ✅ B. ตรวจสอบว่าผู้ใช้ยืนยันอีเมลแล้วหรือยัง
+        if (!user.email_verified) {
+          set.status = 403;
+          return {
+            success: false,
+            message: "กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ",
+          };
+        }
+  
+        // ✅ C. สร้าง Access Token
         const accessToken = await jwt.sign({
-          id: user.id, // UUID
+          id: user.id,
           role: user.role,
-          // username: user.username // ใส่เพิ่มได้ถ้าจำเป็น
         });
-
-        // C. สร้าง Refresh Token (UUID)
+  
+        // ✅ D. สร้าง Refresh Token
         const refreshToken = randomUUID();
-
-        // D. บันทึก Refresh Token ลง Database (อายุ 7 วัน)
-        await RefreshTokenService.createRefreshToken(
-          user.id, // user_id
-          refreshToken, // token string
-          7, // days
-        );
-
-        // E. บันทึก Log การ Login สำเร็จ
+  
+        await RefreshTokenService.createRefreshToken(user.id, refreshToken, 7);
+  
+        // ✅ E. Log การ Login สำเร็จ
         LogService.createLog({
           user_id: user.id,
           action: "LOGIN",
           entity_type: "SESSION",
-          entity_id: user.id, // หรือใส่ ID ของ session ถ้ามี
+          entity_id: user.id,
           details: "User logged in successfully via Password",
           ip_address: request.headers.get("x-forwarded-for") || "unknown",
           user_agent: request.headers.get("user-agent") || "unknown",
         }).catch((e) => console.error("Log Error:", e));
-
-        // F. ส่ง Response กลับ
+  
         return {
           success: true,
           message: "Login successful",
-          accessToken: accessToken, // ใช้ยิง API ทั่วไป
-          refreshToken: refreshToken, // เก็บไว้ใน HttpOnly Cookie หรือ LocalStorage เพื่อขอ Access Token ใหม่
-          user: user,
+          accessToken,
+          refreshToken,
+          user,
         };
       } catch (error) {
         console.error("Login Error:", error);
@@ -97,12 +96,11 @@ const authController = new Elysia({
       }
     },
     {
-      // Input Validation
       body: t.Object({
         email: t.String({ format: "email" }),
         password: t.String(),
       }),
-    },
+    }
   )
 
   // --- ✅ 2. เพิ่ม: Logout Endpoint (เพื่อให้ Token หายจาก DB) ---
