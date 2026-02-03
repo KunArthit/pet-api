@@ -18,12 +18,15 @@
     "elysia": "^1.4.19",
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.16.0",
+    "nodemailer": "^7.0.13",
     "swagger": "^0.7.5",
     "zod": "^4.2.1"
   },
   "devDependencies": {
+    "@types/nodemailer": "^7.0.9",
     "bun-types": "latest",
-    "prisma": "6.19.1"
+    "prisma": "6.19.1",
+    "ts-node": "^10.9.2"
   },
   "module": "src/index.js"
 }

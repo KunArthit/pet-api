@@ -100,12 +100,12 @@ const envSchema = z
       .string()
       .email()
       .optional()
-      .default("noreply@smartfarm.com")
+      .default("noreply@petterrain.com")
       .describe("From email address"),
     COMPANY_NAME: z
       .string()
       .optional()
-      .default("Smart Farm")
+      .default("PETTERRAIN")
       .describe("Company name for emails"),
 
     // Optional Email Service
