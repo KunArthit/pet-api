@@ -16,7 +16,7 @@ export const app = new Elysia()
   .use(
     cors({
       // ⚠️ ต้องระบุ origin ให้ชัดเจน (ห้ามใช้ *)
-      origin: "http://localhost:5173", // URL ของ Frontend React
+      origin: ["http://localhost:5173", "http://3.27.64.101"], // URL ของ Frontend React
       credentials: true, // อนุญาตให้ส่ง Cookie
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
