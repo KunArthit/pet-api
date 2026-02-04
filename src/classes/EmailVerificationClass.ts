@@ -91,34 +91,80 @@ class EmailVerificationClass {
     await emailTransporter.sendMail({
       from: `"${env.COMPANY_NAME}" <${env.FROM_EMAIL || env.SMTP_USER}>`,
       to,
-      subject: "Verify your email address",
+      subject: "🐾 ยืนยันอีเมลของคุณ | Welcome to " + env.COMPANY_NAME,
       html: `
-        <div style="background-color:#f4f6f8;padding:40px 0;font-family:Arial,Helvetica,sans-serif;">
-          <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 4px 10px rgba(0,0,0,0.08);">
-            <div style="background-color:#0066cc;color:#fff;padding:20px 30px;text-align:center;">
-              <h1 style="margin:0;font-size:22px;">Welcome to ${env.COMPANY_NAME}</h1>
-            </div>
-            <div style="padding:30px;color:#333;">
-              <p style="font-size:16px;">Hello,</p>
-              <p style="font-size:15px;">Thank you for registering with <strong>${env.COMPANY_NAME}</strong>.</p>
-              <p style="font-size:15px;">Please confirm your email address by clicking the button below:</p>
-              <div style="text-align:center;margin:30px 0;">
-                <a href="${verifyUrl}" target="_blank"
-                  style="background-color:#0066cc;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-weight:bold;display:inline-block;">
-                  Verify Email
-                </a>
-              </div>
-              <p style="font-size:14px;color:#555;">If the button above doesn't work, copy and paste the link below into your browser:</p>
-              <p style="word-break:break-all;font-size:13px;color:#0066cc;">${verifyUrl}</p>
-              <p style="font-size:12px;color:#999;margin-top:30px;">
-                This link will expire in 15 minutes. If you did not sign up, please ignore this email.
-              </p>
-            </div>
-            <div style="background-color:#f0f0f0;text-align:center;padding:15px;font-size:12px;color:#888;">
-              © ${new Date().getFullYear()} ${env.COMPANY_NAME}. All rights reserved.
+      <div style="
+        font-family: 'Segoe UI', Arial, sans-serif;
+        background-color: #f7fafc;
+        padding: 40px 0;
+        color: #333;
+      ">
+        <div style="
+          max-width: 480px;
+          margin: 0 auto;
+          background: #ffffff;
+          border-radius: 20px;
+          box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+          padding: 40px 30px;
+        ">
+          <!-- Logo -->
+          <div style="text-align: center; margin-bottom: 30px;">
+            <div style="font-size: 28px; font-weight: bold; color: #79A68F;">
+              🐾 ${env.COMPANY_NAME}
             </div>
           </div>
+    
+          <!-- Header -->
+          <h2 style="text-align: center; color: #222; margin-bottom: 10px;">
+            ยืนยันอีเมลของคุณ
+          </h2>
+          <p style="text-align: center; color: #555; font-size: 15px; margin-bottom: 30px;">
+            ขอบคุณที่สมัครสมาชิกกับ <strong>${env.COMPANY_NAME}</strong><br/>
+            กรุณายืนยันอีเมลของคุณเพื่อเริ่มต้นการใช้งาน
+          </p>
+    
+          <!-- Button -->
+          <div style="text-align: center; margin: 35px 0;">
+            <a href="${verifyUrl}"
+              target="_blank"
+              style="
+                background-color: #79A68F;
+                color: white;
+                padding: 14px 30px;
+                border-radius: 8px;
+                text-decoration: none;
+                font-weight: bold;
+                display: inline-block;
+                letter-spacing: 0.5px;
+              "
+            >
+              ✅ ยืนยันอีเมล
+            </a>
+          </div>
+    
+          <!-- Footer -->
+          <p style="font-size: 13px; color: #777; text-align: center; line-height: 1.5;">
+            ลิงก์นี้จะหมดอายุใน <strong>15 นาที</strong><br/>
+            หากปุ่มด้านบนไม่ทำงาน คุณสามารถคัดลอกลิงก์ด้านล่างไปวางในเบราว์เซอร์ได้:
+          </p>
+    
+          <div style="
+            word-break: break-all;
+            background: #f1f5f9;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #444;
+            margin-top: 10px;
+          ">
+            ${verifyUrl}
+          </div>
+    
+          <div style="text-align: center; margin-top: 40px; color: #aaa; font-size: 12px;">
+            © ${new Date().getFullYear()} ${env.COMPANY_NAME}. All rights reserved.
+          </div>
         </div>
+      </div>
       `,
     });
   }

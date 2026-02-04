@@ -33,17 +33,79 @@ export const passwordController = new Elysia({
       await emailTransporter.sendMail({
         from: `"${env.COMPANY_NAME}" <${env.FROM_EMAIL}>`,
         to: email,
-        subject: "รีเซ็ตรหัสผ่านของคุณ",
+        subject: "🔐 รีเซ็ตรหัสผ่านของคุณ | Pet Terrain",
         html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #222;">
-            <h2>รีเซ็ตรหัสผ่าน</h2>
-            <p>คุณสามารถเปลี่ยนรหัสผ่านใหม่ได้โดยคลิกปุ่มด้านล่าง</p>
-            <a href="${resetLink}" 
-              style="background:#007bff;color:#fff;padding:10px 20px;border-radius:5px;text-decoration:none;">
-              ตั้งรหัสผ่านใหม่
-            </a>
-            <p>ลิงก์นี้จะหมดอายุใน 15 นาที</p>
+        <div style="
+          font-family: 'Segoe UI', Arial, sans-serif;
+          background-color: #f7fafc;
+          padding: 40px 0;
+          color: #333;
+        ">
+          <div style="
+            max-width: 480px;
+            margin: 0 auto;
+            background: #ffffff;
+            border-radius: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            padding: 40px 30px;
+          ">
+            <!-- Logo -->
+            <div style="text-align: center; margin-bottom: 30px;">
+              <div style="font-size: 28px; font-weight: bold; color: #79A68F;">
+                🐾 ${env.COMPANY_NAME}
+              </div>
+            </div>
+      
+            <!-- Header -->
+            <h2 style="text-align: center; color: #222; margin-bottom: 10px;">
+              รีเซ็ตรหัสผ่านของคุณ
+            </h2>
+            <p style="text-align: center; color: #555; font-size: 15px; margin-bottom: 30px;">
+              คุณได้ส่งคำขอเพื่อรีเซ็ตรหัสผ่านของบัญชีของคุณ<br/>
+              หากคุณไม่ได้ร้องขอ สามารถเพิกเฉยต่ออีเมลนี้ได้เลย
+            </p>
+      
+            <!-- Button -->
+            <div style="text-align: center; margin: 35px 0;">
+              <a href="${resetLink}"
+                style="
+                  background-color: #79A68F;
+                  color: white;
+                  padding: 14px 30px;
+                  border-radius: 8px;
+                  text-decoration: none;
+                  font-weight: bold;
+                  display: inline-block;
+                  letter-spacing: 0.5px;
+                "
+              >
+                🔑 ตั้งรหัสผ่านใหม่
+              </a>
+            </div>
+      
+            <!-- Footer -->
+            <p style="font-size: 13px; color: #777; text-align: center; line-height: 1.5;">
+              ลิงก์นี้จะหมดอายุใน <strong>15 นาที</strong><br/>
+              หากปุ่มด้านบนไม่ทำงาน คุณสามารถคัดลอกลิงก์ด้านล่างไปวางในเบราว์เซอร์ได้:
+            </p>
+      
+            <div style="
+              word-break: break-all;
+              background: #f1f5f9;
+              padding: 10px 15px;
+              border-radius: 8px;
+              font-size: 12px;
+              color: #444;
+              margin-top: 10px;
+            ">
+              ${resetLink}
+            </div>
+      
+            <div style="text-align: center; margin-top: 40px; color: #aaa; font-size: 12px;">
+              © ${new Date().getFullYear()} ${env.COMPANY_NAME}. All rights reserved.
+            </div>
           </div>
+        </div>
         `,
       });
 
