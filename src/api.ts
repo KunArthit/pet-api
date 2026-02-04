@@ -4,9 +4,10 @@ import UserController from "./controllers/UserController";
 import ProductController from "./controllers/ProductController";
 import AuthController from "./controllers/AuthController";
 import VerifyController from "./controllers/VerifyController";
+import categoryController from "./controllers/CategoryController";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
-  const controllers = [UserController, AuthController, VerifyController, ProductController];
+  const controllers = [UserController, AuthController, VerifyController, ProductController, categoryController];
 
   const app = new Elysia({
     prefix: config.prefix,
