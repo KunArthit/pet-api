@@ -37,4 +37,35 @@ export default class AuthClass {
       throw new Error("Database error during login");
     }
   }
+
+    // ✅ หา user ด้วยอีเมล (ใช้ตอน forgot password)
+    async findByEmail(email: string): Promise<UserWithoutPassword | null> {
+      const query = `SELECT * FROM users WHERE email = ?`;
+      try {
+        const [rows] = await db.execute<RowDataPacket[]>(query, [email]);
+        if (rows.length === 0) return null;
+  
+        const user = rows[0] as UserModel;
+  
+        // ถ้าไม่ active ก็ไม่คืนค่า
+        if (user.is_active === 0) return null;
+  
+        const { password: _, ...userSafe } = user;
+        return userSafe;
+      } catch (error) {
+        console.error("AuthClass.findByEmail Error:", error);
+        throw new Error("Database error during findByEmail");
+      }
+    }
+  
+    // ✅ อัปเดตรหัสผ่านใหม่ (ใช้ตอน reset password)
+    async updatePassword(userId: string, newHashedPassword: string): Promise<void> {
+      const query = `UPDATE users SET password = ? WHERE id = ?`;
+      try {
+        await db.execute(query, [newHashedPassword, userId]);
+      } catch (error) {
+        console.error("AuthClass.updatePassword Error:", error);
+        throw new Error("Database error during updatePassword");
+      }
+    }
 }
