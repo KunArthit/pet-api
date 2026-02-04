@@ -1,11 +1,12 @@
 // api.ts
 import { Elysia } from "elysia";
 import UserController from "./controllers/UserController";
+import ProductController from "./controllers/ProductController";
 import AuthController from "./controllers/AuthController";
 import VerifyController from "./controllers/VerifyController";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
-  const controllers = [UserController, AuthController, VerifyController];
+  const controllers = [UserController, AuthController, VerifyController, ProductController];
 
   const app = new Elysia({
     prefix: config.prefix,

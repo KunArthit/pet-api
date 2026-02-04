@@ -189,4 +189,6 @@ const productController = new Elysia({
     }
   );
 
+  
+
 export default productController;

@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { jwt } from "@elysiajs/jwt";
-import { randomUUID } from "crypto"; // ✅ ใช้สร้าง Refresh Token
+import { randomUUID } from "crypto";
 
 // Import Classes
 import AuthClass from "../classes/AuthClass";
@@ -16,19 +16,20 @@ const authController = new Elysia({
   prefix: "/auth",
   tags: ["Authentication"],
 })
-  // 1. Setup JWT (Access Token อายุสั้น)
+  // 1. Setup JWT
   .use(
     jwt({
       name: "jwt",
       secret: process.env.JWT_SECRET || "secret-key-change-me",
-      exp: "15m", // ✅ Access Token ควรมีอายุสั้น (เช่น 15 นาที) เพราะเรามี Refresh Token แล้ว
-    }),
+      exp: "15m",
+    })
   )
 
   // 2. Login Endpoint
+  // ✅ เพิ่ม: รับ cookie เข้ามาใน parameter
   .post(
     "/login",
-    async ({ body, jwt, set, request }) => {
+    async ({ body, jwt, set, cookie: { refreshToken }, request }) => {
       try {
         // A. ตรวจสอบ User/Pass
         const user = await Auth.login(body.email, body.password);
@@ -65,13 +66,27 @@ const authController = new Elysia({
           id: user.id,
           role: user.role,
         });
-  
-        // ✅ D. สร้าง Refresh Token
-        const refreshToken = randomUUID();
-  
-        await RefreshTokenService.createRefreshToken(user.id, refreshToken, 7);
-  
-        // ✅ E. Log การ Login สำเร็จ
+
+        // C. สร้าง Refresh Token (UUID)
+        const newRefreshToken = randomUUID();
+
+        // D. บันทึก Refresh Token ลง Database
+        await RefreshTokenService.createRefreshToken(
+          user.id,
+          newRefreshToken,
+          7
+        );
+
+        // ✅ แก้ไขจุดที่ 1: ฝัง Refresh Token ลงใน Cookie (HttpOnly)
+        // แทนการส่งกลับไปใน JSON
+        refreshToken.value = newRefreshToken;
+        refreshToken.httpOnly = true; // ห้าม JS อ่าน (กัน XSS)
+        refreshToken.secure = process.env.NODE_ENV === "production"; // ใช้ HTTPS เท่านั้นใน Production
+        refreshToken.path = "/"; // ส่ง Cookie นี้ไปทุก Path (เพื่อให้ /auth/logout, /auth/refresh-token มองเห็น)
+        refreshToken.maxAge = 7 * 86400; // 7 วัน (หน่วยวินาที)
+        refreshToken.sameSite = "lax"; // กัน CSRF เบื้องต้น
+
+        // E. Log Success
         LogService.createLog({
           user_id: user.id,
           action: "LOGIN",
@@ -103,56 +118,59 @@ const authController = new Elysia({
     }
   )
 
-  // --- ✅ 2. เพิ่ม: Logout Endpoint (เพื่อให้ Token หายจาก DB) ---
+  // --- 3. Logout Endpoint ---
+  // ✅ แก้ไข: อ่าน Token จาก Cookie แทน Body
   .post(
     "/logout",
-    async ({ body, set }) => {
+    async ({ set, cookie: { refreshToken } }) => {
       try {
-        // 1. ค้นหา Token ใน DB ก่อน เพื่อจะได้รู้ว่าเป็น User ID อะไร
-        const storedToken = await RefreshTokenService.findToken(
-          body.refreshToken,
-        );
+        const tokenValue = refreshToken.value;
 
-        // ถ้าเจอ Token (แสดงว่าเคย Login ไว้จริง)
-        if (storedToken) {
-          // 2. สั่งลบ Token ทั้งหมดของ User คนนี้! (ไม่ใช่แค่ Token เดียว)
-          // คุณต้องไปเพิ่มฟังก์ชัน revokeAllUserTokens ใน Class RefreshTokenService ด้วยนะครับ
-          await RefreshTokenService.revokeAllUserTokens(storedToken.user_id);
+        if (tokenValue) {
+          // 1. หาข้อมูล Token เพื่อเอา User ID
+          const storedToken = await RefreshTokenService.findToken(tokenValue as string);
 
-          return {
-            success: true,
-            message: "Logged out from all devices successfully",
-          };
+          if (storedToken) {
+            // 2. ลบ Token ใน DB (คุณเลือกจะลบทั้งหมด ก็ใช้ฟังก์ชันเดิม)
+            await RefreshTokenService.revokeAllUserTokens(storedToken.user_id);
+          }
         }
 
-        // กรณีไม่เจอ Token (อาจจะลบไปแล้ว หรือ Token มั่ว)
-        // ก็ตอบ Success ไปเพื่อให้ Frontend เคลียร์หน้าจอได้ตามปกติ
+        // ✅ แก้ไขจุดที่ 2: ลบ Cookie ออกจาก Browser
+        refreshToken.remove();
+
         return {
           success: true,
-          message: "Token not found, but session cleared on client",
+          message: "Logged out successfully",
         };
       } catch (error) {
         console.error("Logout Error:", error);
         set.status = 500;
         return { success: false, message: "Logout failed" };
       }
-    },
-    {
-      body: t.Object({
-        refreshToken: t.String(),
-      }),
-    },
+    }
+    // ไม่ต้อง validate body แล้ว เพราะรับจาก cookie
   )
 
-  // --- ✅ 3. แถม: Refresh Token Endpoint (สำหรับต่ออายุ) ---
+  // --- 4. Refresh Token Endpoint ---
+  // ✅ แก้ไข: อ่าน Token จาก Cookie แทน Body
   .post(
     "/refresh-token",
-    async ({ body, jwt, set }) => {
+    async ({ jwt, set, cookie: { refreshToken } }) => {
       try {
-        // 1. เช็คว่ามี Token ใน DB ไหม และหมดอายุยัง
-        const storedToken = await RefreshTokenService.findToken(
-          body.refreshToken,
-        );
+        // 1. ดึง Token จาก Cookie
+        const tokenValue = refreshToken.value;
+
+        if (!tokenValue) {
+          set.status = 401;
+          return {
+            success: false,
+            message: "No refresh token provided",
+          };
+        }
+
+        // 2. เช็คใน DB
+        const storedToken = await RefreshTokenService.findToken(tokenValue as string);
 
         if (!storedToken) {
           set.status = 401;
@@ -162,10 +180,10 @@ const authController = new Elysia({
           };
         }
 
-        // 2. ถ้าเจอและถูกต้อง -> สร้าง Access Token ใบใหม่
+        // 3. สร้าง Access Token ใหม่
         const newAccessToken = await jwt.sign({
-          id: storedToken.user_id, // หรือ user.id ตามโมเดล
-          role: "user", // *ควรดึง Role จริงจาก User Table อีกทีถ้าเป็นไปได้
+          id: storedToken.user_id,
+          role: "user", // แนะนำให้ query user จริงๆ มาใส่ role ล่าสุด
         });
 
         return {
@@ -177,12 +195,7 @@ const authController = new Elysia({
         set.status = 401;
         return { success: false, message: "Unauthorized" };
       }
-    },
-    {
-      body: t.Object({
-        refreshToken: t.String(),
-      }),
-    },
+    }
   );
 
 export default authController;

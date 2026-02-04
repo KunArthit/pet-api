@@ -8,10 +8,19 @@ import { cors } from "@elysiajs/cors";
 export const app = new Elysia()
   // Log all incoming requests
   .onRequest(({ request }) => {
-    console.log(`Incoming Request: ${request.method} ${new URL(request.url).pathname}`);
+    console.log(
+      `Incoming Request: ${request.method} ${new URL(request.url).pathname}`,
+    );
   })
 
-  .use(cors())
+  .use(
+    cors({
+      // ⚠️ ต้องระบุ origin ให้ชัดเจน (ห้ามใช้ *)
+      origin: "http://localhost:5173", // URL ของ Frontend React
+      credentials: true, // อนุญาตให้ส่ง Cookie
+      allowedHeaders: ["Content-Type", "Authorization"],
+    }),
+  )
 
   // Root & health
   .get("/", () => ({ message: "Welcome to Elysia API" }))
@@ -34,5 +43,5 @@ export const app = new Elysia()
           { name: "Products", description: "Product Management Endpoints" },
         ],
       },
-    })
+    }),
   );

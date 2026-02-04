@@ -10,6 +10,7 @@ import type {
 export default class ProductClass {
   /**
    * ดึงสินค้าทั้งหมด (รองรับ Filter เบื้องต้น)
+   * แก้ไข: ใช้ String Interpolation กับ LIMIT/OFFSET เพื่อแก้ปัญหา Mysql2 Error
    */
   async getAllProducts(
     options: {
@@ -19,8 +20,9 @@ export default class ProductClass {
       categoryId?: number;
     } = {}
   ): Promise<ProductModel[]> {
-    const limit = options.limit || 20;
-    const offset = options.offset || 0;
+    // 1. แปลงเป็นตัวเลขให้ชัวร์ก่อน (ถ้าแปลงไม่ได้ หรือเป็น NaN ให้ใช้ค่า Default)
+    const limit = parseInt(String(options.limit || 20), 10);
+    const offset = parseInt(String(options.offset || 0), 10);
 
     let query = `
       SELECT * FROM products 
@@ -31,20 +33,28 @@ export default class ProductClass {
     // Filter by Search
     if (options.search) {
       query += ` AND (name LIKE ? OR sku LIKE ?)`;
+      // ใส่ % รอบคำค้นหา
       params.push(`%${options.search}%`, `%${options.search}%`);
     }
 
     // Filter by Category
-    if (options.categoryId) {
+    // 2. เช็คว่าต้องเป็นตัวเลขและมากกว่า 0
+    if (options.categoryId && !isNaN(Number(options.categoryId))) {
       query += ` AND category_id = ?`;
-      params.push(options.categoryId);
+      params.push(Number(options.categoryId));
     }
 
-    query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
+    // ✅ 3. แก้ไขจุดสำคัญ: ฝังตัวเลขลงไปใน SQL String เลย (ไม่ใช้ ?)
+    // เพื่อแก้ปัญหา "Incorrect arguments to mysqld_stmt_execute"
+    query += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
-    const [rows] = await db.execute<ProductModel[]>(query, params);
-    return rows;
+    try {
+      const [rows] = await db.execute<ProductModel[]>(query, params);
+      return rows;
+    } catch (error) {
+      console.error("Database Error:", error);
+      throw error;
+    }
   }
 
   /**
@@ -109,10 +119,6 @@ export default class ProductClass {
           index, // sort_order
         ]);
 
-        // Query สำหรับ Insert หลาย row พร้อมกัน
-        // หมายเหตุ: mysql2/promise รองรับ bulk insert ผ่าน query format แต่ต้องระวังเรื่อง syntax
-        // เพื่อความชัวร์ วนลูป insert หรือใช้ library query builder จะง่ายกว่า
-        // แต่อันนี้เขียนแบบ Loop ใน Transaction ให้ดูครับ (ปลอดภัย)
         for (const [pId, url, order] of imageValues) {
             await conn.execute(
                 `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
