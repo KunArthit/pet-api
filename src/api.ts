@@ -5,7 +5,7 @@ import ProductController from "./controllers/ProductController";
 import AuthController from "./controllers/AuthController";
 import VerifyController from "./controllers/VerifyController";
 import categoryController from "./controllers/CategoryController";
-import { passwordController } from "./controllers/passwordController";
+import { passwordController } from "./controllers/PasswordController";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
   const controllers = [UserController, AuthController, VerifyController, ProductController, categoryController, passwordController];
