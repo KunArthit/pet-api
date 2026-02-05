@@ -147,7 +147,7 @@ async createUser(payload: CreateUserInput): Promise<string> {
   try {
     const [existing] = await conn.query<RowDataPacket[]>(checkQuery, [payload.email]);
     if (existing.length > 0) {
-      throw new Error("Email already exists");
+      throw new Error("อีเมลนี้มีอยู่แล้ว");
     }
 
     const query = `
@@ -178,11 +178,11 @@ async createUser(payload: CreateUserInput): Promise<string> {
     // ✅ ตรวจจับ error ชัดเจน (duplicate key / email exists)
     if (
       error instanceof Error &&
-      (error.message.includes("Email already exists") ||
+      (error.message.includes("อีเมลนี้มีอยู่แล้ว") ||
         error.message.includes("Duplicate entry"))
     ) {
-      console.warn("⚠️ Email already exists:", payload.email);
-      throw new Error("Email already exists");
+      console.warn("⚠️ อีเมลนี้มีอยู่แล้ว:", payload.email);
+      throw new Error("อีเมลนี้มีอยู่แล้ว");
     }
 
     console.error("Failed to create user:", error);

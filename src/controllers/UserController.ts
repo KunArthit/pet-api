@@ -94,11 +94,11 @@ const userController = new Elysia({
         const message =
           error instanceof Error ? error.message : String(error);
 
-        if (message === "Email already exists") {
+        if (message === "อีเมลนี้มีอยู่แล้ว") {
           set.status = 400;
           return {
             success: false,
-            message: "Email already exists",
+            message: "อีเมลนี้มีอยู่แล้ว",
           };
         }
 
