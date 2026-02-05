@@ -284,47 +284,4 @@ async createUser(payload: CreateUserInput): Promise<string> {
       conn.release();
     }
   }
-
-  // เช็คซ้ำ email (เอาไว้ validate ก่อน create/update)
-  async existsEmail(email: string, excludeUserId?: number): Promise<boolean> {
-    const query = excludeUserId
-      ? `SELECT 1 FROM users WHERE email = ? AND user_id <> ? LIMIT 1;`
-      : `SELECT 1 FROM users WHERE email = ? LIMIT 1;`;
-
-    const params = excludeUserId ? [email, excludeUserId] : [email];
-
-    const conn = await db.getConnection();
-    try {
-      const [rows] = await conn.query<RowDataPacket[]>(query, params);
-      return rows.length > 0;
-    } catch (error) {
-      console.error("Failed to check email exists:", error);
-      throw new Error("Failed to check email exists");
-    } finally {
-      conn.release();
-    }
-  }
-
-  // เช็คซ้ำ username
-  async existsUsername(
-    username: string,
-    excludeUserId?: number
-  ): Promise<boolean> {
-    const query = excludeUserId
-      ? `SELECT 1 FROM users WHERE username = ? AND user_id <> ? LIMIT 1;`
-      : `SELECT 1 FROM users WHERE username = ? LIMIT 1;`;
-
-    const params = excludeUserId ? [username, excludeUserId] : [username];
-
-    const conn = await db.getConnection();
-    try {
-      const [rows] = await conn.query<RowDataPacket[]>(query, params);
-      return rows.length > 0;
-    } catch (error) {
-      console.error("Failed to check username exists:", error);
-      throw new Error("Failed to check username exists");
-    } finally {
-      conn.release();
-    }
-  }
 }

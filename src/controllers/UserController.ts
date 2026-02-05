@@ -262,47 +262,6 @@ const userController = new Elysia({
         id: t.Number(),
       }),
     }
-  )
-
-  // ✅ ตรวจสอบ username / email ซ้ำ
-  .post(
-  "/check-duplicate",
-  async ({ body, set }) => {
-    try {
-      const { username, email } = body;
-
-      // ตรวจสอบ username ซ้ำ
-      const usernameExists = await UserService.existsUsername(username);
-      if (usernameExists) {
-        set.status = 200;
-        return { duplicate: true, field: "username" };
-      }
-
-      // ตรวจสอบ email ซ้ำ
-      const emailExists = await UserService.existsEmail(email);
-      if (emailExists) {
-        set.status = 200;
-        return { duplicate: true, field: "email" };
-      }
-
-      // ถ้าไม่ซ้ำ
-      return { duplicate: false };
-    } catch (error) {
-      console.error("❌ Error checking duplicate:", error);
-      set.status = 500;
-      return {
-        success: false,
-        message: "Failed to check duplicate",
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  },
-  {
-    body: t.Object({
-      username: t.String(),
-      email: t.String({ format: "email" }),
-    }),
-  }
-);
+  );
 
 export default userController;
