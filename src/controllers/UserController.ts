@@ -256,67 +256,85 @@ const userController = new Elysia({
     },
   )
 
-  // ✅ Update password
-  .put(
-    "/:id/password",
-    async ({ params, body, request, jwt, set }) => {
-      try {
-        // 1. ตรวจสอบ Token
-        const currentUser = await AuthGuard.validate(request, jwt);
-        if (!currentUser) {
-          set.status = 401;
-          return { success: false, message: "Unauthorized" };
-        }
-
-        // 2. Authorization
-        if (currentUser.id !== params.id && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
-          set.status = 403;
-          return { success: false, message: "Forbidden" };
-        }
-
-        // 3. Hash Password ใหม่
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(body.password, salt);
-
-        // 4. Update Password
-        const ok = await UserService.updatePassword(params.id, hashedPassword);
-        if (!ok) {
-            set.status = 404;
-            return { success: false, message: "User not found" };
-        }
-
-        // 5. ✅ บันทึก Activity Log
-        await LogService.createLog({
-          user_id: currentUser.id,
-          action: "CHANGE_PASSWORD",
-          entity_type: "USER",
-          entity_id: params.id,
-          details: "User changed password",
-          ip_address: request.headers.get("x-forwarded-for") || "unknown",
-          user_agent: request.headers.get("user-agent") || "unknown",
-        });
-
-        return { success: true, message: "Password updated successfully" };
-
-      } catch (error) {
-        console.error("Update Password Error:", error);
-        set.status = 500;
-        return {
-          success: false,
-          message: "Failed to update password",
-          error: error instanceof Error ? error.message : String(error),
-        };
+  // ✅ Update password (with old password check)
+.put(
+  "/:id/password",
+  async ({ params, body, request, jwt, set }) => {
+    try {
+      // 1. ตรวจสอบ Token
+      const currentUser = await AuthGuard.validate(request, jwt);
+      if (!currentUser) {
+        set.status = 401;
+        return { success: false, message: "Unauthorized" };
       }
-    },
-    {
-      params: t.Object({
-        id: t.String(), // ✅ UUID string
-      }),
-      body: t.Object({
-        password: t.String({ minLength: 6 }), // Password ใหม่
-      }),
-    },
-  )
+
+      // 2. Authorization
+      if (
+        currentUser.id !== params.id &&
+        currentUser.role !== "admin" &&
+        currentUser.role !== "super_admin"
+      ) {
+        set.status = 403;
+        return { success: false, message: "Forbidden" };
+      }
+
+      // 3. ✅ ดึงข้อมูล user ปัจจุบันจาก database
+      const existingUser = await UserService.getUserById(params.id);
+      if (!existingUser) {
+        set.status = 404;
+        return { success: false, message: "User not found" };
+      }
+
+      // 4. ✅ ตรวจสอบรหัสผ่านเดิม (จำเป็นต้องส่งมาจาก frontend)
+      const match = await bcrypt.compare(body.oldPassword, existingUser.password);
+      if (!match) {
+        set.status = 400;
+        return { success: false, message: "รหัสผ่านเดิมไม่ถูกต้อง" };
+      }
+
+      // 5. ✅ Hash รหัสผ่านใหม่
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(body.newPassword, salt);
+
+      // 6. ✅ อัปเดตรหัสผ่านใหม่
+      const ok = await UserService.updatePassword(params.id, hashedPassword);
+      if (!ok) {
+        set.status = 404;
+        return { success: false, message: "User not found" };
+      }
+
+      // 7. 📝 บันทึก Log
+      await LogService.createLog({
+        user_id: currentUser.id,
+        action: "CHANGE_PASSWORD",
+        entity_type: "USER",
+        entity_id: params.id,
+        details: "User changed password",
+        ip_address: request.headers.get("x-forwarded-for") || "unknown",
+        user_agent: request.headers.get("user-agent") || "unknown",
+      });
+
+      return { success: true, message: "Password updated successfully" };
+    } catch (error) {
+      console.error("Update Password Error:", error);
+      set.status = 500;
+      return {
+        success: false,
+        message: "Failed to update password",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
+  {
+    params: t.Object({
+      id: t.String(),
+    }),
+    body: t.Object({
+      oldPassword: t.String({ minLength: 6 }), // ✅ รหัสผ่านเดิม
+      newPassword: t.String({ minLength: 6 }), // ✅ รหัสผ่านใหม่
+    }),
+  },
+)
 
   // ✅ Activate/Deactivate user
   .patch(
