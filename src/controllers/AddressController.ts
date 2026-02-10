@@ -8,7 +8,7 @@ const AddressService = new AddressClass();
 const AuthGuard = new AuthGuardClass();
 const LogService = new ActivityLogClass();
 
-const AddressController = new Elysia({
+const addressController = new Elysia({
   prefix: "/addresses",
   tags: ["Addresses"],
 })
@@ -80,7 +80,7 @@ const AddressController = new Elysia({
         user_id: currentUser.id, // บังคับใช้ ID จาก Token
         ...body,
         is_default: body.is_default ?? 0,
-        type: (body.type as "shipping" | "billing") ?? "shipping",
+        type: (body.type ?? "shipping") as "shipping" | "billing",
       });
 
       // ✅ Activity Log
@@ -111,7 +111,7 @@ const AddressController = new Elysia({
       province: t.String(),
       zip_code: t.String(),
       is_default: t.Optional(t.Number()), // 0 or 1
-      type: t.Optional(t.Union([t.Literal("shipping"), t.Literal("billing")])), // "shipping" | "billing"
+      type: t.Optional(t.String()), // "shipping" | "billing"
     })
   })
 
@@ -141,7 +141,11 @@ const AddressController = new Elysia({
       }
 
       // 2. ทำการ Update
-      const ok = await AddressService.updateAddress(addressId, currentUser.id, body);
+      const updatePayload = {
+        ...body,
+        type: body.type ? (body.type as "shipping" | "billing") : undefined,
+      };
+      const ok = await AddressService.updateAddress(addressId, currentUser.id, updatePayload);
       if (!ok) throw new Error("Update failed");
 
       // ✅ Activity Log
@@ -172,7 +176,7 @@ const AddressController = new Elysia({
       province: t.String(),
       zip_code: t.String(),
       is_default: t.Number(),
-      type: t.Union([t.Literal("shipping"), t.Literal("billing")]),
+      type: t.String(),
     }))
   })
 
@@ -266,4 +270,4 @@ const AddressController = new Elysia({
     }
   });
 
-export default AddressController;
+export default addressController;
