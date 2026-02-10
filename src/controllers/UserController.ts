@@ -5,8 +5,16 @@ import bcrypt from "bcryptjs";
 import UserClass from "../classes/UserClass";
 import { UserModel } from "../models/UserModel";
 import { EmailVerification } from "../classes/EmailVerificationClass";
+import { authGuard } from "../middlewares/authMiddleware";
+import { AuthGuardClass } from "../classes/AuthGuardClass";
+import { jwtPlugin } from "../utils/jwt-plugin";
+import ActivityLogClass from "../classes/ActivityLogClass";
 
+
+console.log("🧐 CHECK IMPORT:", authGuard);
 const UserService = new UserClass();
+const AuthGuard = new AuthGuardClass();
+const LogService = new ActivityLogClass();
 
 type CreateUserInput = Omit<
   UserModel,
@@ -20,6 +28,41 @@ const userController = new Elysia({
   prefix: "/users",
   tags: ["Users"],
 })
+
+  .use(jwtPlugin)
+
+  .get("/me", async ({ request, jwt, set }) => {
+    
+    // 1. แกะ Token เพื่อเอา ID (Payload มีแค่ { id, role, exp })
+    const payload = await AuthGuard.validate(request, jwt);
+
+    if (!payload) {
+      set.status = 401;
+      return { success: false, message: "Unauthorized" };
+    }
+
+    try {
+      // 2. เอา ID ไปดึงข้อมูล "ตัวเต็ม" จาก Database
+      // (ข้อมูลจะ Update ล่าสุดเสมอ แม้ Token จะเก่า)
+      const fullUserData = await UserService.getUserById(payload.id);
+
+      if (!fullUserData) {
+        set.status = 404;
+        return { success: false, message: "User not found in database" };
+      }
+
+      // 3. 🔒 ตัด Password ทิ้งเพื่อความปลอดภัย
+      const { password, ...safeUser } = fullUserData;
+
+      // 4. ส่งข้อมูลตัวเต็มกลับไป
+      return { success: true, user: safeUser };
+
+    } catch (error) {
+      console.error("Database Error:", error);
+      set.status = 500;
+      return { success: false, message: "Internal Server Error" };
+    }
+  })
 
   // ✅ Get all users
   .get("/", async () => {
@@ -49,7 +92,7 @@ const userController = new Elysia({
       params: t.Object({
         uuid: t.String(),
       }),
-    }
+    },
   )
 
   // ✅ Create user + send verification email
@@ -91,8 +134,7 @@ const userController = new Elysia({
         console.error("❌ Error creating user or sending email:", error);
 
         // ตรวจแยกกรณีอีเมลซ้ำโดยเฉพาะ
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
 
         if (message === "อีเมลนี้มีอยู่แล้ว") {
           set.status = 400;
@@ -119,38 +161,77 @@ const userController = new Elysia({
         phone: t.Optional(t.String()),
         is_active: t.Optional(t.Number()),
       }),
-    }
+    },
   )
 
-  .get("/check-verified", async ({ query, set }) => {
-    try {
-      const user = await UserService.getUserByEmail(query.email);
-      if (!user) {
-        set.status = 404;
-        return { success: false, message: "User not found" };
+  .get(
+    "/check-verified",
+    async ({ query, set }) => {
+      try {
+        const user = await UserService.getUserByEmail(query.email);
+        if (!user) {
+          set.status = 404;
+          return { success: false, message: "User not found" };
+        }
+        return { success: true, email_verified: user.email_verified };
+      } catch (error) {
+        console.error("Check verified error:", error);
+        set.status = 500;
+        return { success: false, message: "Internal server error" };
       }
-      return { success: true, email_verified: user.email_verified };
-    } catch (error) {
-      console.error("Check verified error:", error);
-      set.status = 500;
-      return { success: false, message: "Internal server error" };
-    }
-  }, {
-    query: t.Object({
-      email: t.String({ format: "email" })
-    })
-  })
+    },
+    {
+      query: t.Object({
+        email: t.String({ format: "email" }),
+      }),
+    },
+  )
 
   // ✅ Update user (partial)
   .put(
     "/:id",
-    async ({ params, body }) => {
+    async ({ params, body, request, jwt, set }) => {
       try {
-        const ok = await UserService.updateUser(Number(params.id), body);
-        if (!ok) throw new Error("User not found or no fields to update");
+        // 1. ตรวจสอบ Token
+        const currentUser = await AuthGuard.validate(request, jwt);
+        if (!currentUser) {
+          set.status = 401;
+          return { success: false, message: "Unauthorized" };
+        }
+
+        // 2. Authorization: เช็คว่าเป็นเจ้าของบัญชี หรือเป็น Admin หรือไม่
+        // (ป้องกัน User A แอบแก้ข้อมูล User B)
+        if (currentUser.id !== params.id && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
+          set.status = 403;
+          return { success: false, message: "Forbidden: You can only update your own account" };
+        }
+
+        // 3. ทำการ Update
+        const ok = await UserService.updateUser(params.id, body);
+        if (!ok) {
+            set.status = 404;
+            return { success: false, message: "User not found or no changes made" };
+        }
+
+        // 4. ✅ บันทึก Activity Log
+        await LogService.createLog({
+          user_id: currentUser.id, // ใครเป็นคนทำรายการ
+          action: "UPDATE_USER",
+          entity_type: "USER",
+          entity_id: params.id, // แก้ข้อมูลของใคร
+          details: { 
+            message: "Updated user profile", 
+            fields_updated: Object.keys(body) // บันทึกว่าแก้ field ไหนบ้าง
+          },
+          ip_address: request.headers.get("x-forwarded-for") || "unknown",
+          user_agent: request.headers.get("user-agent") || "unknown",
+        });
+
         return { success: true, message: "User updated successfully" };
+
       } catch (error) {
-        console.error(error);
+        console.error("Update Error:", error);
+        set.status = 500;
         return {
           success: false,
           message: "Failed to update user",
@@ -160,39 +241,66 @@ const userController = new Elysia({
     },
     {
       params: t.Object({
-        id: t.Number(),
+        id: t.String(), // ✅ ใช้ String เพราะเป็น UUID
       }),
       body: t.Partial(
         t.Object({
           username: t.String({ minLength: 3 }),
-          email: t.String({ format: "email" }),
-          password: t.String({ minLength: 6 }),
           first_name: t.String(),
           last_name: t.String(),
           phone: t.String(),
-          user_type_id: t.Number(),
-          department_id: t.Number(),
-          company_name: t.String(),
-          tax_id: t.String(),
-          is_active: t.Number(),
-        })
+          // ตัด field sensitive เช่น role, password ออกจาก route นี้ (ควรแยก route หรือ check admin)
+          is_active: t.Optional(t.Number()), 
+        }),
       ),
-    }
+    },
   )
 
   // ✅ Update password
   .put(
     "/:id/password",
-    async ({ params, body }) => {
+    async ({ params, body, request, jwt, set }) => {
       try {
-        const ok = await UserService.updatePassword(
-          Number(params.id),
-          body.password
-        );
-        if (!ok) throw new Error("User not found");
+        // 1. ตรวจสอบ Token
+        const currentUser = await AuthGuard.validate(request, jwt);
+        if (!currentUser) {
+          set.status = 401;
+          return { success: false, message: "Unauthorized" };
+        }
+
+        // 2. Authorization
+        if (currentUser.id !== params.id && currentUser.role !== "admin" && currentUser.role !== "super_admin") {
+          set.status = 403;
+          return { success: false, message: "Forbidden" };
+        }
+
+        // 3. Hash Password ใหม่
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(body.password, salt);
+
+        // 4. Update Password
+        const ok = await UserService.updatePassword(params.id, hashedPassword);
+        if (!ok) {
+            set.status = 404;
+            return { success: false, message: "User not found" };
+        }
+
+        // 5. ✅ บันทึก Activity Log
+        await LogService.createLog({
+          user_id: currentUser.id,
+          action: "CHANGE_PASSWORD",
+          entity_type: "USER",
+          entity_id: params.id,
+          details: "User changed password",
+          ip_address: request.headers.get("x-forwarded-for") || "unknown",
+          user_agent: request.headers.get("user-agent") || "unknown",
+        });
+
         return { success: true, message: "Password updated successfully" };
+
       } catch (error) {
-        console.error(error);
+        console.error("Update Password Error:", error);
+        set.status = 500;
         return {
           success: false,
           message: "Failed to update password",
@@ -202,54 +310,97 @@ const userController = new Elysia({
     },
     {
       params: t.Object({
-        id: t.Number(),
+        id: t.String(), // ✅ UUID string
       }),
       body: t.Object({
-        password: t.String({ minLength: 6 }),
+        password: t.String({ minLength: 6 }), // Password ใหม่
       }),
-    }
+    },
   )
 
   // ✅ Activate/Deactivate user
   .patch(
     "/:id/active",
-    async ({ params, body }) => {
-      try {
-        const ok = await UserService.setActive(
-          Number(params.id),
-          body.is_active
-        );
-        if (!ok) throw new Error("User not found");
-        return { success: true, message: "User active status updated successfully" };
-      } catch (error) {
-        console.error(error);
-        return {
-          success: false,
-          message: "Failed to update active status",
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
+    async ({ params, body, request, jwt, set }) => {
+        try {
+            // 1. ตรวจสอบว่าเป็น Admin หรือไม่
+            const adminUser = await AuthGuard.validateAdmin(request, jwt);
+            if (!adminUser) {
+                set.status = 403;
+                return { success: false, message: "Forbidden: Admin access required" };
+            }
+
+            // 2. Update status
+            const ok = await UserService.setActive(params.id, body.is_active);
+            if (!ok) throw new Error("User not found");
+
+            // 3. ✅ Log
+            await LogService.createLog({
+                user_id: adminUser.id,
+                action: body.is_active ? "ACTIVATE_USER" : "DEACTIVATE_USER",
+                entity_type: "USER",
+                entity_id: params.id,
+                details: `Admin set status to ${body.is_active}`,
+                ip_address: request.headers.get("x-forwarded-for") || "unknown",
+                user_agent: request.headers.get("user-agent") || "unknown",
+            });
+
+            return { success: true, message: "User status updated" };
+        } catch (error) {
+            console.error(error);
+            set.status = 500;
+            return { success: false, message: "Failed to update status" };
+        }
     },
     {
       params: t.Object({
-        id: t.Number(),
+        id: t.String(), // UUID
       }),
       body: t.Object({
         is_active: t.Number(),
       }),
-    }
+    },
   )
 
   // ✅ Delete user
   .delete(
     "/:id",
-    async ({ params }) => {
+    async ({ params, request, jwt, set }) => {
       try {
-        const ok = await UserService.deleteUser(Number(params.id));
-        if (!ok) throw new Error("User not found");
+        // 1. 🔒 Security: ตรวจสอบว่าเป็น Admin เท่านั้น!
+        // (การลบ User อันตรายมาก ไม่ควรให้ User ทั่วไปทำได้)
+        const adminUser = await AuthGuard.validateAdmin(request, jwt);
+        
+        if (!adminUser) {
+          set.status = 403;
+          return { success: false, message: "Forbidden: Admin access required" };
+        }
+
+        // 2. 🗑️ Perform Delete
+        // ❌ ไม่ต้องแปลง Number() แล้ว เพราะ ID เป็น UUID String
+        const ok = await UserService.deleteUser(params.id);
+        
+        if (!ok) {
+           set.status = 404;
+           return { success: false, message: "User not found" };
+        }
+
+        // 3. 📝 Activity Log
+        await LogService.createLog({
+          user_id: adminUser.id, // ใครเป็นคนกดลบ (Admin)
+          action: "DELETE_USER",
+          entity_type: "USER",
+          entity_id: params.id,  // ลบ User ID ไหนไป
+          details: `User deleted by Admin`,
+          ip_address: request.headers.get("x-forwarded-for") || "unknown",
+          user_agent: request.headers.get("user-agent") || "unknown",
+        });
+
         return { success: true, message: "User deleted successfully" };
+
       } catch (error) {
-        console.error(error);
+        console.error("Delete Error:", error);
+        set.status = 500;
         return {
           success: false,
           message: "Failed to delete user",
@@ -259,9 +410,9 @@ const userController = new Elysia({
     },
     {
       params: t.Object({
-        id: t.Number(),
+        id: t.String(), // ✅ แก้จาก t.Number() เป็น t.String() รองรับ UUID
       }),
-    }
+    },
   );
 
 export default userController;

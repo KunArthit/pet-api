@@ -1,14 +1,16 @@
 import { Elysia, t } from "elysia";
-import { jwt } from "@elysiajs/jwt";
 import { randomUUID } from "crypto";
 
 // Import Classes
 import AuthClass from "../classes/AuthClass";
+import UserClass from "../classes/UserClass"; // ✅ ต้องใช้ตัวนี้ดึง Role ล่าสุด
 import RefreshTokenClass from "../classes/RefreshTokenClass";
 import ActivityLogClass from "../classes/ActivityLogClass";
+import { jwtPlugin } from "../utils/jwt-plugin";
 
 // Instantiate Services
 const Auth = new AuthClass();
+const UserService = new UserClass(); // ✅ เพิ่ม instance
 const RefreshTokenService = new RefreshTokenClass();
 const LogService = new ActivityLogClass();
 
@@ -16,26 +18,20 @@ const authController = new Elysia({
   prefix: "/auth",
   tags: ["Authentication"],
 })
-  // 1. Setup JWT
-  .use(
-    jwt({
-      name: "jwt",
-      secret: process.env.JWT_SECRET || "secret-key-change-me",
-      exp: "15m",
-    })
-  )
+  .use(jwtPlugin)
 
-  // 2. Login Endpoint
-  // ✅ เพิ่ม: รับ cookie เข้ามาใน parameter
+  // =========================================================
+  // 1. 🟢 Login Endpoint
+  // =========================================================
   .post(
     "/login",
     async ({ body, jwt, set, cookie: { refreshToken }, request }) => {
       try {
         // A. ตรวจสอบ User/Pass
         const user = await Auth.login(body.email, body.password);
-  
+
         if (!user) {
-          // log failed login
+          // Log Failed Login
           LogService.createLog({
             user_id: null,
             action: "LOGIN_FAILED",
@@ -43,65 +39,66 @@ const authController = new Elysia({
             details: `Failed login attempt for: ${body.email}`,
             ip_address: request.headers.get("x-forwarded-for") || "unknown",
             user_agent: request.headers.get("user-agent") || "unknown",
-          }).catch((e) => console.error("Log Error:", e));
-  
+          }).catch((e) => console.error(e));
+
           set.status = 401;
-          return {
-            success: false,
-            message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
-          };
+          return { success: false, message: "อีเมลหรือรหัสผ่านไม่ถูกต้อง" };
         }
-  
-        // ✅ B. ตรวจสอบว่าผู้ใช้ยืนยันอีเมลแล้วหรือยัง
+
+        // B. ตรวจสอบยืนยันอีเมล
         if (!user.email_verified) {
           set.status = 403;
-          return {
-            success: false,
-            message: "กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ",
-          };
+          return { success: false, message: "กรุณายืนยันอีเมลก่อนเข้าสู่ระบบ" };
         }
-  
-        // ✅ C. สร้าง Access Token
+
+        if (refreshToken.value) {
+          console.log(
+            `🧹 พบ Token เก่าใน Cookie: ${refreshToken.value} -> กำลังลบทิ้ง...`,
+          );
+          // สั่งลบ Token ตัวเก่าออกจาก DB ทันที
+          await RefreshTokenService.revokeToken(refreshToken.value as string);
+        }
+
+        // C. สร้าง Access Token
         const accessToken = await jwt.sign({
           id: user.id,
           role: user.role,
         });
 
-        // C. สร้าง Refresh Token (UUID)
+        // D. สร้าง Refresh Token (UUID)
         const newRefreshToken = randomUUID();
 
-        // D. บันทึก Refresh Token ลง Database
+        // E. บันทึกลง Database
         await RefreshTokenService.createRefreshToken(
           user.id,
           newRefreshToken,
-          7
+          7,
         );
 
-        // ✅ แก้ไขจุดที่ 1: ฝัง Refresh Token ลงใน Cookie (HttpOnly)
-        // แทนการส่งกลับไปใน JSON
+        // F. ฝังลง Cookie (HttpOnly)
         refreshToken.value = newRefreshToken;
-        refreshToken.httpOnly = true; // ห้าม JS อ่าน (กัน XSS)
-        refreshToken.secure = process.env.NODE_ENV === "production"; // ใช้ HTTPS เท่านั้นใน Production
-        refreshToken.path = "/"; // ส่ง Cookie นี้ไปทุก Path (เพื่อให้ /auth/logout, /auth/refresh-token มองเห็น)
-        refreshToken.maxAge = 7 * 86400; // 7 วัน (หน่วยวินาที)
-        refreshToken.sameSite = "lax"; // กัน CSRF เบื้องต้น
+        refreshToken.httpOnly = true;
+        refreshToken.secure = process.env.NODE_ENV === "production";
+        refreshToken.path = "/";
+        refreshToken.maxAge = 7 * 86400;
+        refreshToken.sameSite = "lax"; // หรือ 'none' ถ้า Cross-site
 
-        // E. Log Success
+        // G. Log Success
         LogService.createLog({
           user_id: user.id,
           action: "LOGIN",
           entity_type: "SESSION",
           entity_id: user.id,
-          details: "User logged in successfully via Password",
+          details: "Login success",
           ip_address: request.headers.get("x-forwarded-for") || "unknown",
           user_agent: request.headers.get("user-agent") || "unknown",
-        }).catch((e) => console.error("Log Error:", e));
-  
+        }).catch((e) => console.error(e));
+
         return {
           success: true,
           message: "Login successful",
           accessToken,
-          refreshToken,
+          // ❌ ไม่ต้องส่ง refreshToken กลับใน body แล้ว เพราะอยู่ใน cookie
           user,
         };
       } catch (error) {
@@ -115,87 +112,103 @@ const authController = new Elysia({
         email: t.String({ format: "email" }),
         password: t.String(),
       }),
-    }
+    },
   )
 
-  // --- 3. Logout Endpoint ---
-  // ✅ แก้ไข: อ่าน Token จาก Cookie แทน Body
-  .post(
-    "/logout",
-    async ({ set, cookie: { refreshToken } }) => {
-      try {
-        const tokenValue = refreshToken.value;
+  // =========================================================
+  // 2. 🔴 Logout Endpoint
+  // =========================================================
+  .post("/logout", async ({ set, cookie: { refreshToken } }) => {
+    try {
+      const tokenValue = refreshToken.value;
 
-        if (tokenValue) {
-          // 1. หาข้อมูล Token เพื่อเอา User ID
-          const storedToken = await RefreshTokenService.findToken(tokenValue as string);
-
-          if (storedToken) {
-            // 2. ลบ Token ใน DB (คุณเลือกจะลบทั้งหมด ก็ใช้ฟังก์ชันเดิม)
-            await RefreshTokenService.revokeAllUserTokens(storedToken.user_id);
-          }
-        }
-
-        // ✅ แก้ไขจุดที่ 2: ลบ Cookie ออกจาก Browser
-        refreshToken.remove();
-
-        return {
-          success: true,
-          message: "Logged out successfully",
-        };
-      } catch (error) {
-        console.error("Logout Error:", error);
-        set.status = 500;
-        return { success: false, message: "Logout failed" };
+      if (tokenValue) {
+        // ✅ ลบเฉพาะ Token เครื่องนี้ (Device Logout)
+        // ถ้าอยากลบทุกเครื่อง (Force Logout) ให้สร้าง route แยก เช่น /logout-all
+        await RefreshTokenService.revokeToken(tokenValue as string);
       }
+
+      // ลบ Cookie
+      refreshToken.remove();
+
+      return { success: true, message: "Logged out successfully" };
+    } catch (error) {
+      console.error("Logout Error:", error);
+      set.status = 500;
+      return { success: false, message: "Logout failed" };
     }
-    // ไม่ต้อง validate body แล้ว เพราะรับจาก cookie
-  )
+  })
 
-  // --- 4. Refresh Token Endpoint ---
-  // ✅ แก้ไข: อ่าน Token จาก Cookie แทน Body
-  .post(
-    "/refresh-token",
-    async ({ jwt, set, cookie: { refreshToken } }) => {
-      try {
-        // 1. ดึง Token จาก Cookie
-        const tokenValue = refreshToken.value;
+  // =========================================================
+  // 3. 🔄 Refresh Token Endpoint (ROTATION SYSTEM)
+  // =========================================================
+  .post("/refresh-token", async ({ jwt, set, cookie: { refreshToken } }) => {
+    try {
+      const tokenValue = refreshToken.value;
 
-        if (!tokenValue) {
-          set.status = 401;
-          return {
-            success: false,
-            message: "No refresh token provided",
-          };
-        }
-
-        // 2. เช็คใน DB
-        const storedToken = await RefreshTokenService.findToken(tokenValue as string);
-
-        if (!storedToken) {
-          set.status = 401;
-          return {
-            success: false,
-            message: "Invalid or expired refresh token",
-          };
-        }
-
-        // 3. สร้าง Access Token ใหม่
-        const newAccessToken = await jwt.sign({
-          id: storedToken.user_id,
-          role: "user", // แนะนำให้ query user จริงๆ มาใส่ role ล่าสุด
-        });
-
-        return {
-          success: true,
-          accessToken: newAccessToken,
-        };
-      } catch (error) {
-        console.error("Refresh Error:", error);
+      // 1. เช็ค Cookie
+      if (!tokenValue) {
         set.status = 401;
-        return { success: false, message: "Unauthorized" };
+        return { success: false, message: "No refresh token provided" };
       }
+
+      // 2. หา Token ใน DB (ต้องเจอก่อน)
+      const storedToken = await RefreshTokenService.findToken(tokenValue as string);
+
+      if (!storedToken) {
+        // 🚨 ถ้าไม่เจอ (โดนลบไปแล้ว หรือหมดอายุ) -> ต้องดีดออก
+        set.status = 401; 
+        return { success: false, message: "Invalid or expired refresh token" };
+      }
+
+      // 3. 🛡️ ATOMIC REVOKE: ลบ Token เก่าทิ้งทันที!
+      const isDeleted = await RefreshTokenService.revokeToken(tokenValue as string);
+
+      // 🛑 ถ้าลบไม่สำเร็จ (แสดงว่ามีคนแย่งลบไปเสี้ยววินาทีก่อนหน้านี้)
+      if (!isDeleted) {
+        set.status = 403; // Forbidden
+        return { success: false, message: "Refresh token reused detected" };
+      }
+
+      // --- ✅ พื้นที่ปลอดภัย ---
+
+      // 4. ดึง User และสร้าง Token ใหม่ตามปกติ
+      const currentUser = await UserService.getUserById(storedToken.user_id);
+      if (!currentUser) {
+         set.status = 401;
+         return { success: false, message: "User not found" };
+      }
+
+      const newAccessToken = await jwt.sign({
+        id: currentUser.id,
+        role: currentUser.role, 
+      });
+
+      // Cleanup & Rotate
+      await RefreshTokenService.rotateUserSessions(currentUser.id, 5);
+
+      const newRefreshToken = randomUUID();
+      await RefreshTokenService.createRefreshToken(
+        currentUser.id,
+        newRefreshToken,
+        7
+      );
+
+      // Set Cookie ...
+      refreshToken.value = newRefreshToken;
+      refreshToken.httpOnly = true;
+      refreshToken.secure = process.env.NODE_ENV === "production";
+      refreshToken.path = "/";
+      refreshToken.maxAge = 7 * 86400;
+      refreshToken.sameSite = "lax";
+
+      return { success: true, accessToken: newAccessToken };
+
+    } catch (error) {
+      console.error("Refresh Error:", error);
+      set.status = 401;
+      return { success: false, message: "Unauthorized" };
     }
-  );
+  });
 
 export default authController;

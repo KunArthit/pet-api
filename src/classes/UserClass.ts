@@ -75,35 +75,6 @@ export default class UserClass {
     }
   }
 
-  // Get user by ID (พร้อม join)
-  // async getUserWithRelationsById(
-  //   user_id: number
-  // ): Promise<UserWithRelations | null> {
-  //   const query = `
-  //     SELECT 
-  //       u.*,
-  //       ut.type_name,
-  //       d.department_name,
-  //       d.description AS department_description
-  //     FROM users AS u
-  //     JOIN user_types AS ut ON u.user_type_id = ut.type_id
-  //     JOIN departments AS d ON u.department_id = d.department_id
-  //     WHERE u.user_id = ?
-  //     LIMIT 1;
-  //   `;
-
-  //   const conn = await db.getConnection();
-  //   try {
-  //     const [rows] = await conn.query<RowDataPacket[]>(query, [user_id]);
-  //     return rows.length ? (rows[0] as unknown as UserWithRelations) : null;
-  //   } catch (error) {
-  //     console.error("Failed to fetch user (relations):", error);
-  //     throw new Error("Failed to fetch user");
-  //   } finally {
-  //     conn.release();
-  //   }
-  // }
-
   // Get user by email
   async getUserByEmail(email: string): Promise<UserModel | null> {
     const query = `SELECT * FROM users WHERE email = ? LIMIT 1;`;
@@ -193,16 +164,17 @@ async createUser(payload: CreateUserInput): Promise<string> {
 }
 
   // Update user (partial) - จะอัปเดต updated_at ให้ด้วยเสมอ
-  async updateUser(user_id: number, patch: UpdateUserPatch): Promise<boolean> {
+ async updateUser(user_id: string, patch: UpdateUserPatch): Promise<boolean> {
     const { setSql, values } = this.buildUpdateSet(patch);
 
-    if (!setSql) return false; // ไม่มี field ให้ update
+    if (!setSql) return false;
 
+    // แก้ WHERE user_id = ? เป็น WHERE id = ? ให้ตรงกับชื่อ column ใน createUser
     const query = `
       UPDATE users
       SET ${setSql},
           updated_at = ?
-      WHERE user_id = ?;
+      WHERE id = ?; 
     `;
 
     const conn = await db.getConnection();
@@ -221,18 +193,18 @@ async createUser(payload: CreateUserInput): Promise<string> {
     }
   }
 
-  // Update password อย่างเดียว
-  async updatePassword(user_id: number, password: string): Promise<boolean> {
+  // ✅ แก้ไข: รับ user_id เป็น string (UUID)
+  async updatePassword(user_id: string, passwordHash: string): Promise<boolean> {
     const query = `
       UPDATE users
       SET password = ?, updated_at = ?
-      WHERE user_id = ?;
+      WHERE id = ?;
     `;
     const conn = await db.getConnection();
 
     try {
       const [result] = await conn.query<ResultSetHeader>(query, [
-        password, // ควรเป็น hash แล้ว
+        passwordHash,
         new Date(),
         user_id,
       ]);
@@ -245,12 +217,12 @@ async createUser(payload: CreateUserInput): Promise<string> {
     }
   }
 
-  // Activate / Deactivate
-  async setActive(user_id: number, is_active: number): Promise<boolean> {
+  // ✅ แก้ไข: รับ user_id เป็น string
+  async setActive(user_id: string, is_active: number): Promise<boolean> {
     const query = `
       UPDATE users
       SET is_active = ?, updated_at = ?
-      WHERE user_id = ?;
+      WHERE id = ?;
     `;
     const conn = await db.getConnection();
 
@@ -269,9 +241,9 @@ async createUser(payload: CreateUserInput): Promise<string> {
     }
   }
 
-  // Delete user (hard delete) — ถ้าคุณอยาก soft delete ให้ใช้ setActive(0) แทน
-  async deleteUser(user_id: number): Promise<boolean> {
-    const query = `DELETE FROM users WHERE user_id = ?;`;
+  // ✅ แก้ไข: รับ user_id เป็น string
+  async deleteUser(user_id: string): Promise<boolean> {
+    const query = `DELETE FROM users WHERE id = ?;`;
     const conn = await db.getConnection();
 
     try {

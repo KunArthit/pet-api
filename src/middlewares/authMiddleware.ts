@@ -1,24 +1,68 @@
 import { Elysia } from "elysia";
-import { jwt } from "@elysiajs/jwt";
+import { jwtPlugin } from "../utils/jwt-plugin";
 
 export const authGuard = new Elysia()
-  .use(
-    jwt({
-      name: "jwt",
-      secret: process.env.JWT_SECRET || "secret-key-change-me",
-    })
-  )
-  .derive(async ({ jwt, cookie: { auth }, request }) => {
-    // 1. ดึง Token จาก Header (Bearer ...)
+  .use(jwtPlugin)
+  .derive(async ({ jwt, request, cookie: { auth } }) => {
+    // 📢 Log จุดที่ 1: ดูซิว่ามันวิ่งเข้ามาทำงานไหม?
+    console.log("\n🔥 [DEBUG] 1. Inline Guard Start!");
+
+    // 1. ดึง Token
     const authHeader = request.headers.get("authorization");
+    console.log("🔍 [DEBUG] 2. Header:", authHeader);
+
     let token = authHeader && authHeader.startsWith("Bearer ") 
       ? authHeader.slice(7) 
       : null;
 
+    if (!token && auth && auth.value) {
+        console.log("🍪 [DEBUG] Found token in cookie");
+        token = auth.value as string;
+    }
+
+    if (!token) {
+      console.log("❌ [DEBUG] 3. No Token Found!");
+      return { user: null };
+    }
+
+    // 2. ลองไขกุญแจ Verify
+    try {
+      const payload = await jwt.verify(token);
+      
+      if (!payload) {
+        console.log("❌ [DEBUG] 4. Verify Failed (Invalid Signature/Expired)");
+        return { user: null };
+      }
+
+      console.log("✅ [DEBUG] 5. Verify Success! User ID:", payload.id);
+      return { user: payload };
+
+    } catch (error) {
+      console.error("💥 [DEBUG] Exception:", error);
+      return { user: null };
+    }
+  })
+  .derive(async ({ jwt, cookie: { auth }, request }) => {
+    // 1. ดึง Token จาก Header (Bearer ...)
+
+    console.log(request);
+    console.log(auth);
+
+    console.log(jwt);
+
+    const authHeader = request.headers.get("authorization");
+
+    console.log("authHeader: ",authHeader);
+    
+    let token =
+      authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
+
     // 2. ถ้าไม่มีใน Header ลองดูใน Cookie (เผื่อใช้)
     // ✅ แก้ error ตรงนี้: เพิ่ม 'as string' เพื่อยืนยัน type
     if (!token && auth && auth.value) {
-        token = auth.value as string;
+      token = auth.value as string;
     }
 
     // 3. ตรวจสอบความถูกต้องของ Token
@@ -59,5 +103,5 @@ export const authGuard = new Elysia()
           throw new Error("Forbidden: Admin access required");
         }
       });
-    }
+    },
   }));

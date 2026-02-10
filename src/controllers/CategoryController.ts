@@ -5,7 +5,7 @@ import { authGuard } from "../middlewares/authMiddleware"; // ✅ นำเข�
 
 const CategoryService = new CategoryClass();
 
-const categoryController = new Elysia({
+const CategoryController = new Elysia({
   prefix: "/categories",
   tags: ["Categories"],
 })
@@ -109,4 +109,4 @@ const categoryController = new Elysia({
     }
   );
 
-export default categoryController;
+export default CategoryController;

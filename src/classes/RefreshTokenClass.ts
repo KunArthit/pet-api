@@ -89,4 +89,62 @@ export default class RefreshTokenClass {
       conn.release();
     }
   }
+
+  // 5. ล้าง Token ที่หมดอายุทิ้ง (Scheduled Task / Cron Job)
+  async deleteExpiredTokens(): Promise<number> {
+    const query = `DELETE FROM refresh_tokens WHERE expires_at < NOW()`;
+
+    const conn = await db.getConnection();
+    try {
+      const [result] = await conn.execute<ResultSetHeader>(query);
+      console.log(`🧹 Cleanup: Deleted ${result.affectedRows} expired tokens.`);
+      return result.affectedRows;
+    } catch (error) {
+      console.error("Failed to cleanup tokens:", error);
+      return 0;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // 👇 5. เพิ่มฟังก์ชันนี้เข้าไปครับ (Logic: ลบ Token เก่าทิ้ง ถ้าเกินโควต้า)
+  async rotateUserSessions(userId: string, maxSessions: number = 5): Promise<void> {
+    const conn = await db.getConnection();
+    try {
+      // 1. ดึง Token ทั้งหมดของ User คนนี้ (เรียงจาก "ใหม่ -> เก่า")
+      const querySelect = `
+        SELECT token FROM refresh_tokens 
+        WHERE user_id = ? 
+        ORDER BY created_at DESC
+      `;
+      const [rows] = await conn.execute<RowDataPacket[]>(querySelect, [userId]);
+
+      // 2. คำนวณว่าต้องลบกี่ตัว?
+      // เช่น: มีอยู่ 5 ตัว, max = 5
+      // เรากำลังจะเพิ่มตัวใหม่เข้าไปอีก 1 ตัว ดังนั้นต้องเหลือที่ว่างไว้ 4 ที่ (max - 1)
+      const allowedCount = maxSessions - 1;
+
+      if (rows.length > allowedCount) {
+        // ตัดเอาเฉพาะตัวที่ "เกินโควต้า" (คือตัวเก่าๆ ที่อยู่ท้าย array)
+        const tokensToDelete = rows.slice(allowedCount).map((r) => r.token);
+
+        if (tokensToDelete.length > 0) {
+          // 3. สั่งลบทีเดียวหลายตัว (WHERE token IN (?, ?, ?))
+          const placeholders = tokensToDelete.map(() => "?").join(",");
+          const queryDelete = `DELETE FROM refresh_tokens WHERE token IN (${placeholders})`;
+
+          await conn.execute(queryDelete, tokensToDelete);
+          
+          console.log(`✂️ Auto-Trim: ลบ Session เก่าออก ${tokensToDelete.length} รายการ (User: ${userId})`);
+        }
+      }
+    } catch (error) {
+      console.error("Failed to rotate sessions:", error);
+      // ไม่ต้อง throw error ก็ได้ เพราะไม่ใช่ critical error (แค่ลบของเก่าไม่สำเร็จ)
+    } finally {
+      conn.release();
+    }
+  }
+
+
 }
