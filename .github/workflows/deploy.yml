@@ -27,7 +27,7 @@ jobs:
           # ✅ โหลดค่า .env เข้ามาใน environment
           export $(cat .env | xargs)
 
-          docker-compose build petterrain_api
-          docker-compose up -d petterrain_api
+          docker-compose build backend
+          docker-compose up -d backend
           docker image prune -f
           echo "✅ API Deployment completed!"
