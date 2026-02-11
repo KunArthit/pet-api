@@ -1,34 +1,37 @@
-name: Deploy API to EC2
+name: Deploy Full Stack to EC2
 
 on:
   push:
     branches:
-      - main
+      - main   # หรือ branch ที่คุณ deploy จริง
 
 jobs:
   deploy:
-    runs-on: self-hosted
+    runs-on: self-hosted   # ใช้ runner บน EC2
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Deploy API via Docker Compose
+      - name: Deploy via Docker Compose
         run: |
           set -e
-          cd /home/ubuntu/pet-api
-          echo "🔄 Pulling latest API code..."
+
+          echo "🔄 Pulling latest code..."
+          # cd /home/ubuntu/pet-frontend
           git fetch --all
           git reset --hard origin/main
 
-          echo "🐳 Rebuilding API container..."
-          cd /home/ubuntu
+          # echo "🌐 Building container..."
+          # cd /home/ubuntu
 
-          # ✅ โหลดค่า .env เข้ามาใน environment
-          export $(cat .env | xargs)
+          export $(grep -v '^#' .env | xargs)
 
           docker-compose down
           docker-compose build
           docker-compose up -d
+
+          # 🧹 ล้าง image เก่าที่ไม่ได้ใช้
           docker image prune -f
-          echo "✅ API Deployment completed!"
+
+          echo "✅ Deployment completed successfully!"
