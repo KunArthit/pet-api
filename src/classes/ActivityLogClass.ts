@@ -1,4 +1,3 @@
-// classes/ActivityLogClass.ts
 import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import db from "../core/database";
 import type {
