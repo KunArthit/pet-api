@@ -1,35 +1,33 @@
-name: Deploy Full Stack to EC2
+name: Deploy API to EC2
 
 on:
   push:
     branches:
-      - main 
+      - main
 
 jobs:
   deploy:
     runs-on: self-hosted
 
     steps:
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v0.1.8
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            set -e
-            cd ${{ secrets.EC2_PATH }}
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            echo "🔄 Pulling latest code..."
-            git fetch --all
-            git reset --hard origin/main
+      - name: Deploy API via Docker Compose
+        run: |
+          set -e
+          cd /home/ubuntu/pet-api
+          echo "🔄 Pulling latest API code..."
+          git fetch --all
+          git reset --hard origin/main
 
-            echo "🐳 Rebuilding Docker containers..."
-            docker-compose pull || true
-            docker-compose build --no-cache
-            docker-compose up -d --remove-orphans
+          echo "🐳 Rebuilding API container..."
+          cd /home/ubuntu
 
-            echo "🧹 Cleaning up old images..."
-            docker image prune -f
+          # ✅ โหลดค่า .env เข้ามาใน environment
+          export $(cat .env | xargs)
 
-            echo "✅ Deployment completed!"
+          docker-compose build petterrain_api
+          docker-compose up -d petterrain_api
+          docker image prune -f
+          echo "✅ API Deployment completed!"
