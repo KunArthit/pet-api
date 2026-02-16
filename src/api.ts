@@ -1,4 +1,4 @@
-// api.ts
+// src/api.ts
 import { Elysia } from "elysia";
 import UserController from "./controllers/UserController";
 import ProductController from "./controllers/ProductController";
@@ -7,9 +7,18 @@ import VerifyController from "./controllers/VerifyController";
 import AddressController from "./controllers/AddressController";
 import CategoryController from "./controllers/CategoryController";
 import { passwordController } from "./controllers/PasswordController";
+import { lineWebhook } from "./controllers/lineWebhook";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
-  const controllers = [UserController, AuthController, VerifyController, ProductController, CategoryController, passwordController, AddressController];
+  const controllers = [
+    UserController,
+    AuthController,
+    VerifyController,
+    ProductController,
+    CategoryController,
+    passwordController,
+    AddressController,
+  ];
 
   const app = new Elysia({
     prefix: config.prefix,
@@ -22,14 +31,14 @@ export const apiRouter = <T extends string>(config: { prefix: T }) => {
     app.use(controller);
   });
 
-  // ✅ Global error handler — แก้ปัญหา JSON parse error
+  // ✅ เพิ่ม LINE webhook (แค่ครั้งเดียว)
+  app.use(lineWebhook);
+
+  // ✅ Global error handler
   app.onError(({ code, error, set }) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`🔥 API Error [${code}]:`, message);
-
-    // กำหนดสถานะ (บาง code เช่น NOT_FOUND, VALIDATION ก็สามารถจัดการเฉพาะได้)
     set.status = code === "NOT_FOUND" ? 404 : 500;
-
     return {
       success: false,
       message: message || "Internal Server Error",
