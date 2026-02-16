@@ -9,6 +9,7 @@ import { authGuard } from "../middlewares/authMiddleware";
 import { AuthGuardClass } from "../classes/AuthGuardClass";
 import { jwtPlugin } from "../utils/jwt-plugin";
 import ActivityLogClass from "../classes/ActivityLogClass";
+import { sendLineNotification } from "../services/lineService"; // 🆕 เพิ่มบรรทัดนี้
 
 
 console.log("🧐 CHECK IMPORT:", authGuard);
@@ -96,73 +97,146 @@ const userController = new Elysia({
   )
 
   // ✅ Create user + send verification email
-  .post(
-    "/",
-    async ({ body, set }) => {
-      try {
-        console.log("➡️ Starting user creation process...");
+  // .post(
+  //   "/",
+  //   async ({ body, set }) => {
+  //     try {
+  //       console.log("➡️ Starting user creation process...");
 
-        // Hash password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(body.password, salt);
+  //       // Hash password
+  //       const salt = await bcrypt.genSalt(10);
+  //       const hashedPassword = await bcrypt.hash(body.password, salt);
 
-        // Prepare payload
-        const newUserPayload = {
-          ...body,
-          password: hashedPassword,
-        } as CreateUserInput;
+  //       // Prepare payload
+  //       const newUserPayload = {
+  //         ...body,
+  //         password: hashedPassword,
+  //       } as CreateUserInput;
 
-        // Create user
-        const newUserId = await UserService.createUser(newUserPayload);
-        console.log("✅ Created user:", newUserId);
+  //       // Create user
+  //       const newUserId = await UserService.createUser(newUserPayload);
+  //       console.log("✅ Created user:", newUserId);
 
-        // Create verification token
-        const token = await EmailVerification.create(newUserId);
-        console.log("✅ Created verification token:", token);
+  //       // Create verification token
+  //       const token = await EmailVerification.create(newUserId);
+  //       console.log("✅ Created verification token:", token);
 
-        // Send verification email
-        await EmailVerification.sendVerifyEmail(body.email, token);
-        console.log("✅ Sent verification email");
+  //       // Send verification email
+  //       await EmailVerification.sendVerifyEmail(body.email, token);
+  //       console.log("✅ Sent verification email");
 
-        set.status = 201;
-        return {
-          success: true,
-          message: "User created and verification email sent",
-          user_id: newUserId,
-        };
-      } catch (error) {
-        console.error("❌ Error creating user or sending email:", error);
+  //       set.status = 201;
+  //       return {
+  //         success: true,
+  //         message: "User created and verification email sent",
+  //         user_id: newUserId,
+  //       };
+  //     } catch (error) {
+  //       console.error("❌ Error creating user or sending email:", error);
 
-        // ตรวจแยกกรณีอีเมลซ้ำโดยเฉพาะ
-        const message = error instanceof Error ? error.message : String(error);
+  //       // ตรวจแยกกรณีอีเมลซ้ำโดยเฉพาะ
+  //       const message = error instanceof Error ? error.message : String(error);
 
-        if (message === "อีเมลนี้มีอยู่แล้ว") {
-          set.status = 400;
-          return {
-            success: false,
-            message: "อีเมลนี้มีอยู่แล้ว",
-          };
-        }
+  //       if (message === "อีเมลนี้มีอยู่แล้ว") {
+  //         set.status = 400;
+  //         return {
+  //           success: false,
+  //           message: "อีเมลนี้มีอยู่แล้ว",
+  //         };
+  //       }
 
-        set.status = 500;
+  //       set.status = 500;
+  //       return {
+  //         success: false,
+  //         message: "Failed to create user or send verification email",
+  //         error: message,
+  //       };
+  //     }
+  //   },
+  //   {
+  //     body: t.Object({
+  //       username: t.String({ minLength: 3 }),
+  //       email: t.String({ format: "email" }),
+  //       password: t.String({ minLength: 6 }),
+  //       role: t.Optional(t.String()),
+  //       phone: t.Optional(t.String()),
+  //       is_active: t.Optional(t.Number()),
+  //     }),
+  //   },
+  // )
+
+  // ✅ Create user + send verification email
+.post(
+  "/",
+  async ({ body, set }) => {
+    try {
+      console.log("➡️ Starting user creation process...");
+
+      // Hash password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(body.password, salt);
+
+      // Prepare payload
+      const newUserPayload = {
+        ...body,
+        password: hashedPassword,
+      } as CreateUserInput;
+
+      // Create user
+      const newUserId = await UserService.createUser(newUserPayload);
+      console.log("✅ Created user:", newUserId);
+
+      // Create verification token
+      const token = await EmailVerification.create(newUserId);
+      console.log("✅ Created verification token:", token);
+
+      // Send verification email
+      await EmailVerification.sendVerifyEmail(body.email, token);
+      console.log("✅ Sent verification email");
+
+      // 🆕 ส่งแจ้งเตือนไปที่ LINE OA
+      await sendLineNotification(
+        `🎉 มีผู้ใช้ใหม่สมัครใช้งาน PetTerrain\n👤 ${body.username}\n📧 ${body.email}`
+      );
+
+      set.status = 201;
+      return {
+        success: true,
+        message: "User created and verification email sent",
+        user_id: newUserId,
+      };
+    } catch (error) {
+      console.error("❌ Error creating user or sending email:", error);
+
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (message === "อีเมลนี้มีอยู่แล้ว") {
+        set.status = 400;
         return {
           success: false,
-          message: "Failed to create user or send verification email",
-          error: message,
+          message: "อีเมลนี้มีอยู่แล้ว",
         };
       }
-    },
-    {
-      body: t.Object({
-        username: t.String({ minLength: 3 }),
-        email: t.String({ format: "email" }),
-        password: t.String({ minLength: 6 }),
-        role: t.Optional(t.String()),
-        phone: t.Optional(t.String()),
-        is_active: t.Optional(t.Number()),
-      }),
-    },
-  )
+
+      set.status = 500;
+      return {
+        success: false,
+        message: "Failed to create user or send verification email",
+        error: message,
+      };
+    }
+  },
+  {
+    body: t.Object({
+      username: t.String({ minLength: 3 }),
+      email: t.String({ format: "email" }),
+      password: t.String({ minLength: 6 }),
+      role: t.Optional(t.String()),
+      phone: t.Optional(t.String()),
+      is_active: t.Optional(t.Number()),
+    }),
+  },
+)
 
   .get(
     "/check-verified",

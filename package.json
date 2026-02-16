@@ -20,6 +20,7 @@
     "elysia": "^1.4.19",
     "jsonwebtoken": "^9.0.3",
     "mysql2": "^3.16.0",
+    "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.13",
     "swagger": "^0.7.5",
     "zod": "^4.2.1"
