@@ -8,6 +8,7 @@ import AddressController from "./controllers/AddressController";
 import CategoryController from "./controllers/CategoryController";
 import { passwordController } from "./controllers/PasswordController";
 import { lineWebhook } from "./controllers/lineWebhook";
+import { uploadRoute } from "./upload";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
   const controllers = [
@@ -33,6 +34,8 @@ export const apiRouter = <T extends string>(config: { prefix: T }) => {
 
   // ✅ เพิ่ม LINE webhook (แค่ครั้งเดียว)
   app.use(lineWebhook);
+
+  app.use(uploadRoute);
 
   // ✅ Global error handler
   app.onError(({ code, error, set }) => {

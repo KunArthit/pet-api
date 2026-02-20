@@ -1,12 +1,13 @@
+// src/app.ts
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 import { Elysia } from "elysia";
 import { swagger } from "@elysiajs/swagger";
 import { apiRouter } from "./api";
 import { cors } from "@elysiajs/cors";
+import { staticPlugin } from "@elysiajs/static";
 
 export const app = new Elysia()
-  // Log all incoming requests
   .onRequest(({ request }) => {
     console.log(
       `Incoming Request: ${request.method} ${new URL(request.url).pathname}`,
@@ -15,21 +16,26 @@ export const app = new Elysia()
 
   .use(
     cors({
-      // ⚠️ ต้องระบุ origin ให้ชัดเจน (ห้ามใช้ *)
-      origin: ["http://localhost:5173", "http://3.27.64.101"], // URL ของ Frontend React
-      credentials: true, // อนุญาตให้ส่ง Cookie
+      origin: ["http://localhost:5173", "http://3.27.64.101"],
+      credentials: true,
       allowedHeaders: ["Content-Type", "Authorization"],
     }),
   )
 
-  // Root & health
+  .use(staticPlugin({ prefix: "/uploads", assets: "uploads" }))
+
   .get("/", () => ({ message: "Welcome to Elysia API" }))
   .get("/health", () => ({ status: "ok" }))
 
-  // API routes
+  .use(
+    staticPlugin({
+      prefix: "/uploads",
+      assets: "uploads",
+    })
+  )
+
   .use(apiRouter({ prefix: "/api" }))
 
-  // Swagger documentation
   .use(
     swagger({
       path: "/docs",
@@ -41,6 +47,7 @@ export const app = new Elysia()
         tags: [
           { name: "Users", description: "User Management Endpoints" },
           { name: "Products", description: "Product Management Endpoints" },
+          { name: "Uploads", description: "File Upload Endpoints" },
         ],
       },
     }),
