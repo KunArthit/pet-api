@@ -82,7 +82,7 @@ export const app = new Elysia()
   .use(
     staticPlugin({
       prefix: "/uploads",
-      assets: "uploads",
+      assets: "/app/uploads"
     })
   )
 
