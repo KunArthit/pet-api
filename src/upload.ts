@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { existsSync, mkdirSync, writeFileSync } from "fs";
 import path from "path";
+import { promises as fs } from "fs";
 
 export const uploadRoute = new Elysia({ prefix: "/upload" })
   .post(
@@ -13,8 +14,14 @@ export const uploadRoute = new Elysia({ prefix: "/upload" })
           return { success: false, message: "Missing file" };
         }
 
+        // const uploadsDir = path.join(process.cwd(), "uploads");
+        // if (!existsSync(uploadsDir)) mkdirSync(uploadsDir);
+
         const uploadsDir = path.join(process.cwd(), "uploads");
-        if (!existsSync(uploadsDir)) mkdirSync(uploadsDir);
+          if (!(await fs.stat(uploadsDir).catch(() => false))) {
+            await fs.mkdir(uploadsDir);
+            await fs.chmod(uploadsDir, 0o777);
+          }
 
         const fileName = `${Date.now()}-${file.name}`;
         const filePath = path.join(uploadsDir, fileName);
