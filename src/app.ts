@@ -30,8 +30,9 @@ export const app = new Elysia()
   .use(
     staticPlugin({
       prefix: "/uploads",
-      assets: "uploads",
-    })
+      assets: "/app/uploads",
+      noCache: true,
+    } as any)
   )
 
   .use(apiRouter({ prefix: "/api" }))
