@@ -9,6 +9,8 @@ import CategoryController from "./controllers/CategoryController";
 import { passwordController } from "./controllers/PasswordController";
 import { lineWebhook } from "./controllers/lineWebhook";
 import { uploadRoute } from "./upload";
+import CartController from "./controllers/CartController";
+import WishlistController from "./controllers/WishlistController";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
   const controllers = [
@@ -19,6 +21,8 @@ export const apiRouter = <T extends string>(config: { prefix: T }) => {
     CategoryController,
     passwordController,
     AddressController,
+    CartController,
+    WishlistController
   ];
 
   const app = new Elysia({
