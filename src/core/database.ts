@@ -35,7 +35,7 @@ const db = mysql.createPool({
   connectionLimit: 10,    // รองรับ 10 connection พร้อมกัน
   queueLimit: 0,
   enableKeepAlive: true,  // ✨ พระเอกของเรา: ช่วยยิง ping เลี้ยง connection ไว้ไม่ให้ตัด
-  keepAliveInitialDelay: 0,
+  keepAliveInitialDelay: 60000, // เริ่มยิง ping หลังจาก 60 วินาที (ปรับได้ตามต้องการ)
 });
 
 // Test Connection (Optional: เช็คตอนรัน Server)
@@ -47,5 +47,7 @@ db.getConnection()
   .catch((err) => {
     console.error("❌ Database Connection Failed:", err);
   });
+
+  
 
 export default db;

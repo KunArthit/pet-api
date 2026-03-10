@@ -11,6 +11,8 @@ import { lineWebhook } from "./controllers/lineWebhook";
 import { uploadRoute } from "./upload";
 import CartController from "./controllers/CartController";
 import WishlistController from "./controllers/WishlistController";
+import OrderController from "./controllers/OrderController";
+import PaymentController from "./controllers/PymentController";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
   const controllers = [
@@ -22,7 +24,9 @@ export const apiRouter = <T extends string>(config: { prefix: T }) => {
     passwordController,
     AddressController,
     CartController,
-    WishlistController
+    WishlistController,
+    OrderController,
+    PaymentController
   ];
 
   const app = new Elysia({
