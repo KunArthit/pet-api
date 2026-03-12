@@ -87,21 +87,32 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
         bank_transfer: "Bank Transfer",
         cod: "Cash on Delivery"
       };
-
+      
       const paymentLabel = paymentMap[body.payment_method] || body.payment_method;
-
+      
       const adminUrl = `https://admin.yoursite.com/orders/${orderResult.orderNumber}`;
-
+      
       const message = `
-📦 Order ใหม่ #${orderResult.orderNumber}
-👤 ${user.name || "Customer"}
-💰 ${orderResult.totalAmount} บาท
-💳 ${paymentLabel}
-
-🔎 ดูรายละเอียด
-${adminUrl}
-`;
-
+      📦 <b>New Order</b>
+      ━━━━━━━━━━━━━━━━━━
+      
+      🧾 Order
+      ${orderResult.orderNumber}
+      
+      👤 Customer
+      ${user.username || user.email || "Customer"}
+      
+      💰 Total
+      ${orderResult.totalAmount} บาท
+      
+      💳 Payment
+      ${paymentLabel}
+      
+      ━━━━━━━━━━━━━━━━━━
+      🔎 ดูรายละเอียด
+      ${adminUrl}
+      `;
+      
       try {
         await sendLineNotification(message);
       } catch (err) {
