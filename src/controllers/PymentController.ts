@@ -131,16 +131,10 @@ const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] }
 💸 ลูกค้าอัปโหลดสลิป
 
 Payment #${paymentId}
-👤 User ${user.username}
-
-🧾 ดูสลิป
-${slipLink}
-
-🔎 ตรวจสอบ
-${adminUrl}
-
-⏰ เวลาโอน
-${transferDate.toLocaleString("th-TH")}
+👤 ลูกค้า : ${user.username}
+🧾 สลิป : ${slipLink}
+🔎 ตรวจสอบ : ${adminUrl}
+⏰ เวลาโอน : ${transferDate.toLocaleString("th-TH")}
 `;
 
       try {
