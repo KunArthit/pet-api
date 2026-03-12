@@ -114,7 +114,11 @@ const settingsController = new Elysia({ prefix: "/settings", tags: ["Settings"] 
       success: true,
       message: "Payment method added successfully",
       data: {
-        payment_id: paymentId
+        id: paymentId,
+        bank_name: body.bank_name,
+        account_name: body.account_name,
+        account_number: body.account_number,
+        is_active: 1
       }
     };
 
@@ -125,6 +129,51 @@ const settingsController = new Elysia({ prefix: "/settings", tags: ["Settings"] 
       account_number: t.String()
     })
   })
+
+  // ============================================================
+// 🔄 เปิด / ปิด การใช้งานบัญชี
+// ============================================================
+.put("/payment/:id", async ({ params, body, request, jwt, set }) => {
+
+  const user = await AuthGuard.validate(request, jwt);
+  if (!user) {
+    set.status = 401;
+    return { success: false, message: "Unauthorized" };
+  }
+
+  const updated = await SettingsService.updatePaymentMethod(
+    Number(params.id),
+    body
+  );
+
+  if (!updated) {
+    set.status = 500;
+    return { success: false, message: "Failed to update payment method" };
+  }
+
+  await LogService.createLog({
+    user_id: user.id,
+    action: "UPDATE_PAYMENT_METHOD",
+    entity_type: "PAYMENT_METHOD",
+    entity_id: params.id,
+    details: {
+      message: "Updated payment method",
+      payload: body
+    },
+    ip_address: request.headers.get("x-forwarded-for") || "unknown",
+    user_agent: request.headers.get("user-agent") || "unknown",
+  });
+
+  return {
+    success: true,
+    message: "Payment method updated successfully"
+  };
+
+}, {
+  body: t.Object({
+    is_active: t.Number()
+  })
+})
 
   // ============================================================
   // 🗑 ลบบัญชีธนาคาร
