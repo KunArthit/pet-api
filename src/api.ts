@@ -13,6 +13,7 @@ import CartController from "./controllers/CartController";
 import WishlistController from "./controllers/WishlistController";
 import OrderController from "./controllers/OrderController";
 import PaymentController from "./controllers/PymentController";
+import SettingsController from "./controllers/SettingController";
 
 export const apiRouter = <T extends string>(config: { prefix: T }) => {
   const controllers = [
@@ -26,7 +27,8 @@ export const apiRouter = <T extends string>(config: { prefix: T }) => {
     CartController,
     WishlistController,
     OrderController,
-    PaymentController
+    PaymentController,
+    SettingsController
   ];
 
   const app = new Elysia({
