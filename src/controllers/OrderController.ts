@@ -1,13 +1,14 @@
 // src/controllers/OrderController.ts
 import { Elysia, t } from "elysia";
 import OrderClass from "../classes/OrderClass";
-import PaymentClass from "../classes/PaymentClass"; // ✅ Import Payment
+import PaymentClass from "../classes/PaymentClass";
 import { AuthGuardClass } from "../classes/AuthGuardClass";
 import ActivityLogClass from "../classes/ActivityLogClass";
 import { jwtPlugin } from "../utils/jwt-plugin";
+import { sendLineNotification } from "../services/lineService";
 
 const OrderService = new OrderClass();
-const PaymentService = new PaymentClass(); // ✅ Instantiate Payment
+const PaymentService = new PaymentClass();
 const AuthGuard = new AuthGuardClass();
 const LogService = new ActivityLogClass();
 
@@ -19,18 +20,24 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
   // ============================================================
   .get("/", async ({ request, jwt, set }) => {
     const user = await AuthGuard.validate(request, jwt);
-    if (!user) { set.status = 401; return { success: false, message: "Unauthorized" }; }
+    if (!user) { 
+      set.status = 401; 
+      return { success: false, message: "Unauthorized" }; 
+    }
 
     const orders = await OrderService.getUserOrders(user.id);
     return { success: true, data: orders };
   })
 
   // ============================================================
-  // 🟢 ดึงรายละเอียดคำสั่งซื้อ (บิลใบเสร็จ)
+  // 🟢 ดึงรายละเอียดคำสั่งซื้อ
   // ============================================================
   .get("/:orderNumber", async ({ params, request, jwt, set }) => {
     const user = await AuthGuard.validate(request, jwt);
-    if (!user) { set.status = 401; return { success: false, message: "Unauthorized" }; }
+    if (!user) { 
+      set.status = 401; 
+      return { success: false, message: "Unauthorized" }; 
+    }
 
     const order = await OrderService.getOrderDetails(params.orderNumber, user.id);
     
@@ -43,14 +50,18 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
   })
 
   // ============================================================
-  // 🔵 สร้างคำสั่งซื้อใหม่ (Checkout) + วิ่งไป Payment อัตโนมัติ
+  // 🔵 สร้างคำสั่งซื้อใหม่ (Checkout)
   // ============================================================
   .post("/", async ({ body, request, jwt, set }) => {
     const user = await AuthGuard.validate(request, jwt);
-    if (!user) { set.status = 401; return { success: false, message: "Unauthorized" }; }
+    if (!user) { 
+      set.status = 401; 
+      return { success: false, message: "Unauthorized" }; 
+    }
 
     try {
-      // 1. สร้าง Order, Quotation และ ล้างตะกร้า
+
+      // 1️⃣ สร้าง Order
       const orderResult = await OrderService.createOrder(
         user.id,
         body.shipping_address_id,
@@ -59,15 +70,48 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
         body.payment_method
       );
 
-      // 💳 2. สร้าง Payment Session (จำลองขอ Link จ่ายเงิน) ทันที
+      // 2️⃣ สร้าง Payment Session
       const paymentResult = await PaymentService.createPaymentSession(
         orderResult.orderId,
         user.id,
         orderResult.totalAmount,
-        body.payment_method // ✅ เพิ่มตัวแปรนี้เข้าไป
+        body.payment_method
       );
 
-      // 📝 3. เก็บ Log การสั่งซื้อและการสร้าง Payment
+      // =====================================================
+      // 🔔 LINE Notification
+      // =====================================================
+
+      const paymentMap: Record<string, string> = {
+        promptpay: "PromptPay",
+        bank_transfer: "Bank Transfer",
+        cod: "Cash on Delivery"
+      };
+
+      const paymentLabel = paymentMap[body.payment_method] || body.payment_method;
+
+      const adminUrl = `https://admin.yoursite.com/orders/${orderResult.orderNumber}`;
+
+      const message = `
+📦 Order ใหม่ #${orderResult.orderNumber}
+👤 ${user.name || "Customer"}
+💰 ${orderResult.totalAmount} บาท
+💳 ${paymentLabel}
+
+🔎 ดูรายละเอียด
+${adminUrl}
+`;
+
+      try {
+        await sendLineNotification(message);
+      } catch (err) {
+        console.error("LINE notify failed", err);
+      }
+
+      // =====================================================
+      // 📝 Activity Log
+      // =====================================================
+
       await LogService.createLog({
         user_id: user.id,
         action: "CREATE_ORDER",
@@ -82,7 +126,10 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
         user_agent: request.headers.get("user-agent") || "unknown",
       });
 
-      // ✅ 4. ส่งข้อมูลรวมกลับไปให้หน้าบ้าน (Frontend)
+      // =====================================================
+      // 📦 Response
+      // =====================================================
+
       return { 
         success: true, 
         message: "Order placed and payment initiated successfully", 
@@ -99,7 +146,11 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
     } catch (error: any) {
       console.error("Checkout Error:", error);
       set.status = error.message === "Cart is empty" ? 400 : 500;
-      return { success: false, message: error.message || "Failed to create order" };
+
+      return { 
+        success: false, 
+        message: error.message || "Failed to create order" 
+      };
     }
   }, {
     body: t.Object({

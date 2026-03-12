@@ -5,6 +5,7 @@ import { AuthGuardClass } from "../classes/AuthGuardClass";
 import ActivityLogClass from "../classes/ActivityLogClass";
 import { jwtPlugin } from "../utils/jwt-plugin";
 import { join } from "path";
+import { sendLineNotification } from "../services/lineService";
 
 const PaymentService = new PaymentClass();
 const AuthGuard = new AuthGuardClass();
@@ -118,6 +119,35 @@ const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] }
 
       // 5. บันทึกลง Database
       await PaymentService.uploadSlip(paymentId, user.id, slipUrl, transferDate);
+
+      // ====================================================
+      // 🔔 LINE Notification
+      // ====================================================
+
+      const slipLink = `https://yoursite.com${slipUrl}`;
+      const adminUrl = `https://admin.yoursite.com/payments/${paymentId}`;
+
+      const message = `
+💸 ลูกค้าอัปโหลดสลิป
+
+Payment #${paymentId}
+👤 User ${user.id}
+
+🧾 ดูสลิป
+${slipLink}
+
+🔎 ตรวจสอบ
+${adminUrl}
+
+⏰ เวลาโอน
+${transferDate.toLocaleString("th-TH")}
+`;
+
+      try {
+        await sendLineNotification(message);
+      } catch (err) {
+        console.error("LINE notification failed:", err);
+      }
 
       // 📝 เก็บ Log
       await LogService.createLog({
