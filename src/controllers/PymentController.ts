@@ -130,7 +130,7 @@ const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] }
       const message = `
 💸 ลูกค้าอัปโหลดสลิป
 
-Payment #${paymentId}
+Payment : #${paymentId}
 👤 ลูกค้า : ${user.username}
 🧾 สลิป : ${slipLink}
 🔎 ตรวจสอบ : ${adminUrl}

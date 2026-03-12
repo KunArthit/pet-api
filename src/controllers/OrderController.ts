@@ -93,15 +93,14 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
       const adminUrl = `https://admin.yoursite.com/orders/${orderResult.orderNumber}`;
       
       const message = `
-      📦 ORDER ใหม่เข้าระบบ
+📦 ORDER ใหม่เข้าระบบ
 
-      🧾 Order : ${orderResult.orderNumber}
-      👤 Customer : ${user.username || user.email || "Customer"}
-      💰 Total : ${orderResult.totalAmount} บาท
-      💳 Payment : ${paymentLabel}
+🧾 Order : ${orderResult.orderNumber}
+👤 Customer : ${user.username || user.email || "Customer"}
+💰 Total : ${orderResult.totalAmount} บาท
+💳 Payment : ${paymentLabel}
       
-      🔎 ดูรายละเอียด
-      ${adminUrl}
+🔎 ดูรายละเอียด : ${adminUrl}
       `;
       
       try {
