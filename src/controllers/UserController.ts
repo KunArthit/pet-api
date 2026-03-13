@@ -362,41 +362,48 @@ const userController = new Elysia({
     body: t.Object({ is_active: t.Number() }),
   })
 
+  
+
   // ============================================================
-  // 🔴 ลบผู้ใช้ (เฉพาะแอดมิน)
+  // 💀 ลบผู้ใช้ถาวร (Hard Delete - PDPA) - เฉพาะแอดมิน
   // ============================================================
-  .delete("/:id", async ({ params, request, jwt, set }) => {
+  .delete("/:id/hard", async ({ params, request, jwt, set }) => {
     try {
+      // 1. ตรวจสอบสิทธิ์ (ต้องเป็น Admin หรือ Super Admin เท่านั้นถึงจะทำ Hard Delete ได้)
       const adminUser = await AuthGuard.validateAdmin(request, jwt);
       if (!adminUser) {
         set.status = 403;
         return { success: false, message: "Forbidden: Admin access required" };
       }
 
-      const ok = await UserService.deleteUser(params.id);
+      // 2. ดำเนินการ Hard Delete ทะลวงฐานข้อมูล
+      const ok = await UserService.hardDeleteUser(params.id);
       if (!ok) {
         set.status = 404;
-        return { success: false, message: "User not found" };
+        return { success: false, message: "User not found or already deleted" };
       }
 
+      // 3. 📝 เก็บ Log การกระทำของ Admin
       await LogService.createLog({
-        user_id: adminUser.id,
-        action: "DELETE_USER",
+        user_id: adminUser.id, // ID ของ Admin ที่เป็นคนกดลบ
+        action: "HARD_DELETE_USER", // ระบุประเภทชัดเจนว่าลบแบบ Hard
         entity_type: "USER",
-        entity_id: params.id,
-        details: `User deleted by Admin`,
+        entity_id: params.id, // ID ของ User ที่ปลิวไปแล้ว
+        details: "Admin performed a hard delete (PDPA compliance) - unlinked financial data and deleted PII",
         ip_address: request.headers.get("x-forwarded-for") || "unknown",
         user_agent: request.headers.get("user-agent") || "unknown",
       });
 
-      return { success: true, message: "User deleted successfully" };
+      return { success: true, message: "User permanently deleted (Hard Delete) successfully" };
     } catch (error) {
-      console.error("Delete Error:", error);
+      console.error("Hard Delete Error:", error);
       set.status = 500;
-      return { success: false, message: "Failed to delete user" };
+      return { success: false, message: "Failed to hard delete user" };
     }
   }, {
     params: t.Object({ id: t.String() }),
   });
+
+  
 
 export default userController;

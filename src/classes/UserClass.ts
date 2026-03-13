@@ -256,4 +256,47 @@ async createUser(payload: CreateUserInput): Promise<string> {
       conn.release();
     }
   }
+
+  // ==========================================
+  // 💀 ลบผู้ใช้แบบถาวร (Hard Delete / PDPA Compliance)
+  // ==========================================
+  async hardDeleteUser(userId: string): Promise<boolean> {
+    const conn = await db.getConnection();
+    
+    // 🛑 เริ่ม Transaction: ถ้าลบตารางไหนไม่ผ่าน ให้ย้อนกลับทั้งหมด
+    await conn.beginTransaction();
+
+    try {
+      // 1. ตัดสายสะดือเอกสารทางการเงิน (Orders, Quotations, Payments)
+      // ⚠️ ระวัง: ใน Database ต้องตั้งค่าให้คอลัมน์ user_id ของ 3 ตารางนี้ อนุญาตให้เป็น NULL (Allow Null) ได้ด้วยนะครับ
+      await conn.query(`UPDATE orders SET user_id = NULL WHERE user_id = ?`, [userId]);
+      await conn.query(`UPDATE quotations SET user_id = NULL WHERE user_id = ?`, [userId]);
+      await conn.query(`UPDATE payments SET user_id = NULL WHERE user_id = ?`, [userId]);
+
+      // 2. ลบข้อมูลส่วนตัวที่ระบุตัวตนได้ (PII) ทิ้งถาวร
+      await conn.query(`DELETE FROM addresses WHERE user_id = ?`, [userId]);
+      await conn.query(`DELETE FROM cart_wishlist WHERE user_id = ?`, [userId]);
+
+      // 3. จัดการ Activity Log (แปลงเป็นนิรนาม โดยตั้ง user_id ให้เป็น NULL)
+      // เพื่อให้สถิติโดยรวมของระบบยังอยู่ แต่ไม่รู้ว่าใครเป็นคนทำ
+      await conn.query(`UPDATE activity_logs SET user_id = NULL WHERE user_id = ?`, [userId]);
+
+      // 4. ท้ายสุด ลบ User ออกจากระบบถาวร! 💥
+      const [result] = await conn.query<ResultSetHeader>(
+        `DELETE FROM users WHERE id = ?`,
+        [userId]
+      );
+
+      // ยืนยันการทำงาน
+      await conn.commit();
+      return result.affectedRows > 0;
+
+    } catch (error) {
+      await conn.rollback();
+      console.error("Hard Delete Failed:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
 }
