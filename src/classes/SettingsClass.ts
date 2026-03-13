@@ -141,6 +141,20 @@ export default class SettingsClass {
     }
   }
 
+  async updatePaymentMethod(
+    id: number,
+    data: { is_active: number | boolean }
+  ): Promise<boolean> {
+    const [result] = await db.execute<ResultSetHeader>(
+      `UPDATE payment_methods
+       SET is_active = ?
+       WHERE id = ?`,
+      [data.is_active, id]
+    );
+
+    return result.affectedRows > 0;
+  }
+
   // ==========================================
   // 🗑 ลบบัญชีธนาคาร
   // ==========================================
