@@ -8,15 +8,24 @@ export default class CategoryClass {
   /**
    * ดึงหมวดหมู่ทั้งหมด (เรียงตาม ID หรือตามต้องการ)
    */
-  async getAllCategories(onlyActive: boolean = true): Promise<CategoryModel[]> {
-    let query = `SELECT * FROM categories`;
+ async getAllCategories(onlyActive: boolean): Promise<CategoryModel[]> {
+    // 👇 แก้คำสั่ง SQL ให้ JOIN กับตาราง products แล้วนับ (COUNT)
+    let query = `
+      SELECT c.*, COUNT(p.id) AS product_count 
+      FROM categories c
+      LEFT JOIN products p ON c.id = p.category_id AND p.deleted_at IS NULL
+    `;
     const params: any[] = [];
 
+    console.log("Active: ",onlyActive);
     if (onlyActive) {
-      query += ` WHERE is_active = 1`;
+      console.log("Active: ",onlyActive);
+      
+      query += ` WHERE c.is_active = 1`;
     }
     
-    query += ` ORDER BY parent_id ASC, id ASC`; // เรียงพ่อมาก่อนลูก
+    // 👇 เพิ่ม GROUP BY เพื่อจัดกลุ่มการนับให้ถูกต้อง
+    query += ` GROUP BY c.id ORDER BY c.parent_id ASC, c.id ASC`;
 
     const [rows] = await db.execute<any[]>(query, params);
     return rows as CategoryModel[];
@@ -85,11 +94,43 @@ export default class CategoryClass {
    * ลบหมวดหมู่ (ในรูปไม่มี deleted_at ดังนั้นจะเป็น Hard Delete คือลบจริง)
    * หมายเหตุ: ถ้าจะลบ ต้องระวังสินค้าที่ผูกอยู่กับหมวดหมู่นี้ด้วย
    */
-  async deleteCategory(id: number): Promise<boolean> {
-    // อาจจะต้องเช็คก่อนว่ามีสินค้าใช้อยู่ไหม (ถ้าจะทำละเอียด)
-    // แต่นี่เอาแบบลบเลย
-    const query = `DELETE FROM categories WHERE id = ?`;
-    const [result] = await db.execute<ResultSetHeader>(query, [id]);
-    return result.affectedRows > 0;
+  async deleteCategory(id: number): Promise<{ success: boolean; message: string }> {
+    const conn = await db.getConnection();
+    try {
+      // 1. เช็คก่อนว่ามีหมวดหมู่ลูก (Sub-categories) ผูกอยู่ไหม?
+      const [childCats] = await conn.query<any[]>(
+        `SELECT id FROM categories WHERE parent_id = ? LIMIT 1`, 
+        [id]
+      );
+      if (childCats.length > 0) {
+        return { success: false, message: "ไม่สามารถลบได้ เนื่องจากมีหมวดหมู่ย่อยผูกอยู่" };
+      }
+
+      // 2. เช็คก่อนว่ามีสินค้า (Products) ผูกอยู่ในหมวดหมู่นี้ไหม?
+      const [products] = await conn.query<any[]>(
+        `SELECT id FROM products WHERE category_id = ? AND deleted_at IS NULL LIMIT 1`, 
+        [id]
+      );
+      if (products.length > 0) {
+        return { success: false, message: "ไม่สามารถลบได้ เนื่องจากมีสินค้าอยู่ในหมวดหมู่นี้" };
+      }
+
+      // 3. ถ้าเคลียร์หมดแล้ว ลบทิ้งได้เลย (Hard Delete ได้ เพราะเป็นแค่ Master Data)
+      const [result] = await conn.query<ResultSetHeader>(
+        `DELETE FROM categories WHERE id = ?`, 
+        [id]
+      );
+      
+      if (result.affectedRows > 0) {
+        return { success: true, message: "ลบหมวดหมู่สำเร็จ" };
+      } else {
+        return { success: false, message: "ไม่พบหมวดหมู่นี้ในระบบ" };
+      }
+    } catch (error) {
+      console.error("Delete Category Error:", error);
+      throw error;
+    } finally {
+      conn.release();
+    }
   }
 }

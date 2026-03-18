@@ -2,13 +2,14 @@
 
 export interface CategoryModel {
   id: number;
-  parent_id: number | null; // เป็น null ได้ ถ้าเป็นหมวดหมู่หลัก
+  parent_id: number | null;
   name: string;
   slug: string;
   image_url: string | null;
-  is_active: number; // 0 หรือ 1
+  is_active: number;
   created_at?: Date;
   updated_at?: Date;
+  product_count?: number; // 👈 เพิ่มบรรทัดนี้เข้ามา
 }
 
 export interface CreateCategoryInput {
