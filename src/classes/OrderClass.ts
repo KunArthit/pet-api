@@ -200,7 +200,25 @@ export default class OrderClass {
   // ==========================================
   // 📋 ดึงประวัติคำสั่งซื้อทั้งหมดของ User
   // ==========================================
-  async getUserOrders(userId: string): Promise<RowDataPacket[]> {
+  async getUserOrders(): Promise<RowDataPacket[]> {
+    const conn = await db.getConnection();
+    try {
+      const [rows] = await conn.query<RowDataPacket[]>(
+        `SELECT * FROM orders ORDER BY created_at DESC`,
+      );
+      return rows;
+    } catch (error) {
+      console.error("Failed to fetch user orders:", error);
+      return [];
+    } finally {
+      conn.release();
+    }
+  }
+
+  // ==========================================
+  // 📋 ดึงประวัติคำสั่งซื้อทั้งหมดของ User
+  // ==========================================
+  async getUserOrdersByUserId(userId: string): Promise<RowDataPacket[]> {
     const conn = await db.getConnection();
     try {
       const [rows] = await conn.query<RowDataPacket[]>(
@@ -246,6 +264,58 @@ export default class OrderClass {
     } catch (error) {
       console.error("Failed to fetch order details:", error);
       return null;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // ==========================================
+  // 👑 [Admin] ดึงรายละเอียดคำสั่งซื้อ (ไม่ต้องเช็ค user_id)
+  // ==========================================
+  async getAdminOrderDetails(orderNumber: string): Promise<any | null> {
+    const conn = await db.getConnection();
+    try {
+      // ดึงข้อมูล Order หลัก และ Payment Slip (ไม่กรอง user_id)
+      const [orders] = await conn.query<RowDataPacket[]>(
+        `SELECT o.*, p.slip_image 
+          FROM orders o 
+          LEFT JOIN payments p ON o.id = p.order_id 
+          WHERE o.order_number = ? LIMIT 1`,
+        [orderNumber]
+      );
+
+      if (orders.length === 0) return null;
+      const order = orders[0];
+
+      // ดึงข้อมูลสินค้าที่อยู่ใน Order นั้น
+      const [items] = await conn.query<RowDataPacket[]>(
+        `SELECT * FROM order_items WHERE order_id = ?`,
+        [order.id]
+      );
+      
+      order.items = items;
+
+      return order;
+    } catch (error) {
+      console.error("Failed to fetch admin order details:", error);
+      return null;
+    } finally {
+      conn.release();
+    }
+  }
+
+ // 👑 [Admin] อัปเดตสถานะคำสั่งซื้อ (รองรับการยกเลิกพร้อมเหตุผล)
+  async updateOrderStatus(orderId: number, status: string, cancelReason: string | null = null): Promise<boolean> {
+    const conn = await db.getConnection();
+    try {
+      const [result] = await conn.query<ResultSetHeader>(
+        `UPDATE orders SET status = ?, cancel_reason = ?, updated_at = NOW() WHERE id = ?`,
+        [status, status === 'cancelled' ? cancelReason : null, orderId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error("Failed to update order status:", error);
+      return false;
     } finally {
       conn.release();
     }

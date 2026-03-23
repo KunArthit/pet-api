@@ -15,7 +15,8 @@ const LogService = new ActivityLogClass();
 const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
   .use(jwtPlugin)
 
-  // ============================================================
+
+    // ============================================================
   // 🟢 ดึงประวัติคำสั่งซื้อทั้งหมดของฉัน
   // ============================================================
   .get("/", async ({ request, jwt, set }) => {
@@ -25,7 +26,21 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
       return { success: false, message: "Unauthorized" }; 
     }
 
-    const orders = await OrderService.getUserOrders(user.id);
+    const orders = await OrderService.getUserOrders();
+    return { success: true, data: orders };
+  })
+
+  // ============================================================
+  // 🟢 ดึงประวัติคำสั่งซื้อทั้งหมดของฉัน
+  // ============================================================
+  .get("/user", async ({ request, jwt, set }) => {
+    const user = await AuthGuard.validate(request, jwt);
+    if (!user) { 
+      set.status = 401; 
+      return { success: false, message: "Unauthorized" }; 
+    }
+
+    const orders = await OrderService.getUserOrdersByUserId(user.id);
     return { success: true, data: orders };
   })
 
@@ -160,6 +175,72 @@ const orderController = new Elysia({ prefix: "/orders", tags: ["Orders"] })
       shipping_cost: t.Number({ default: 0 }),
       payment_method: t.String({ default: "bank_transfer" })
     })
+  })
+
+
+  // ============================================================
+  // 👑 [Admin] ดึงรายละเอียดคำสั่งซื้อ 
+  // ============================================================
+  .get("/admin/:orderNumber", async ({ params, request, jwt, set }) => {
+    // เช็คสิทธิ์ว่าเป็น Admin หรือไม่
+    const adminUser = await AuthGuard.validateAdmin(request, jwt);
+    if (!adminUser) { 
+      set.status = 403; 
+      return { success: false, message: "Forbidden: Admin access required" }; 
+    }
+
+    const order = await OrderService.getAdminOrderDetails(params.orderNumber);
+    
+    if (!order) {
+      set.status = 404;
+      return { success: false, message: "Order not found" };
+    }
+
+    return { success: true, data: order };
+  })
+
+  // ============================================================
+  // 👑 [Admin] อัปเดตสถานะคำสั่งซื้อ
+  // ============================================================
+  .patch("/:id/status", async ({ params, body, request, jwt, set }) => {
+    // เช็คสิทธิ์ว่าเป็น Admin หรือไม่
+    const adminUser = await AuthGuard.validateAdmin(request, jwt);
+    if (!adminUser) { 
+      set.status = 403; 
+      return { success: false, message: "Forbidden: Admin access required" }; 
+    }
+ 
+    try {
+      const ok = await OrderService.updateOrderStatus(Number(params.id), body.status, body.cancel_reason);
+      
+      if (!ok) {
+        set.status = 400;
+        return { success: false, message: "Failed to update order status" };
+      }
+
+      // 📝 เก็บ Log การเปลี่ยนสถานะโดย Admin
+      await LogService.createLog({
+        user_id: adminUser.id,
+        action: "UPDATE_ORDER_STATUS",
+        entity_type: "ORDER",
+        entity_id: params.id,
+        details: `Admin updated order status to: ${body.status}`,
+        ip_address: request.headers.get("x-forwarded-for") || "unknown",
+        user_agent: request.headers.get("user-agent") || "unknown",
+      });
+
+      return { success: true, message: "Order status updated successfully" };
+    } catch (error) {
+      console.error("Update Status Error:", error);
+      set.status = 500;
+      return { success: false, message: "Internal Server Error" };
+    }
+  }, {
+    body: t.Object({
+      status: t.String(),
+      cancel_reason: t.String({ nullable: true, default: null })
+    })
   });
+  
 
 export default orderController;

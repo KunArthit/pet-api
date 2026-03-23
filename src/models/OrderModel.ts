@@ -27,6 +27,7 @@ export interface OrderModel {
   billing_address: string;
   billing_phone: string;
   tracking_number: string | null;
+  cancel_reason: string | null;
   created_at: Date;
   updated_at: Date;
   
