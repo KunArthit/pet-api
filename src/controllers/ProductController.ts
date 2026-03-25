@@ -170,6 +170,9 @@ const productController = new Elysia({
       if (body.image && body.image.size > 0) {
         // รูปหลักเปลี่ยนได้เลย ไฟล์เก่าทิ้งไว้ให้ Order Snapshot
         updateData.image_url = await uploadAndCompressImage(body.image as File, "prod_main");
+      } else if (body.image_url !== undefined) {
+        // ✅ รับค่า image_url ตรงๆ (เช่น "" เพื่อ clear รูปปก)
+        updateData.image_url = body.image_url;
       }
 
       // ล้างค่าที่ไม่ได้ส่งมาออก
@@ -194,7 +197,8 @@ const productController = new Elysia({
       price: t.Optional(t.Numeric()),
       stock_quantity: t.Optional(t.Numeric()),
       is_active: t.Optional(t.Numeric()),
-      image: t.Optional(t.File()), 
+      image: t.Optional(t.File()),
+      image_url: t.Optional(t.String()), // ✅ รับ "" เพื่อ clear รูปปก
     }),
   })
 
