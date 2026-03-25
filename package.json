@@ -23,6 +23,7 @@
     "mysql2": "^3.16.0",
     "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.13",
+    "sharp": "^0.34.5",
     "static": "^2.0.0",
     "swagger": "^0.7.5",
     "zod": "^4.2.1"

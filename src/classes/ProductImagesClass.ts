@@ -1,56 +1,45 @@
-import { ProductImagesModel } from "../models/ProductImagesModel";
+// src/classes/ProductImagesClass.ts
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import db from "../core/database";
 
-class ProductImageService {
-  // ดึงรูปภาพตาม Product ID
-  async getImagesByProductId(product_id: number): Promise<ProductImagesModel[]> {
-    // แก้ไข: ใช้ sort_order ตาม Schema จริง
-    const query = `SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC;`;
+export default class ProductImagesClass {
+  async getImagesByProductId(productId: number) {
     const conn = await db.getConnection();
     try {
-      const [rows] = await conn.query(query, [product_id]);
-      return rows as ProductImagesModel[];
-    } catch (error) {
-      console.error("Failed to fetch product images:", error);
-      throw error;
+      const [images] = await conn.query<RowDataPacket[]>(
+        `SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC`,
+        [productId]
+      );
+      return images;
     } finally {
       conn.release();
     }
   }
 
-  // สร้างรูปภาพใหม่
-  async createImage(image: { product_id: number; image_url: string; sort_order: number }): Promise<number> {
-    // แก้ไข: VALUES มี 3 ตัวให้ตรงกับ Parameter (id และ created_at ให้ DB จัดการ)
-    const query = `
-      INSERT INTO product_images (product_id, image_url, sort_order)
-      VALUES (?, ?, ?);
-    `;
+  async createImage(data: { product_id: number; image_url: string; sort_order: number }): Promise<number> {
     const conn = await db.getConnection();
     try {
-      const [result]: any = await conn.query(query, [
-        image.product_id,
-        image.image_url,
-        image.sort_order,
-      ]);
+      const query = `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`;
+      const [result] = await conn.query<ResultSetHeader>(query, [data.product_id, data.image_url, data.sort_order]);
       return result.insertId;
-    } catch (error) {
-      console.error("Database Insert Error:", error);
-      throw error;
     } finally {
       conn.release();
     }
   }
 
-  async deleteImage(id: number): Promise<boolean> {
-    const query = `DELETE FROM product_images WHERE id = ?;`;
+  // 💀 ลบรูปแกลเลอรีเดี่ยวๆ (คืนค่า URL กลับไปให้ลบไฟล์จริง)
+  async deleteImage(imageId: number): Promise<string | null> {
     const conn = await db.getConnection();
     try {
-      const [result]: any = await conn.query(query, [id]);
-      return result.affectedRows > 0;
+      const [rows] = await conn.query<RowDataPacket[]>(
+        `SELECT image_url FROM product_images WHERE id = ?`, [imageId]
+      );
+      if (rows.length === 0) return null;
+
+      await conn.query(`DELETE FROM product_images WHERE id = ?`, [imageId]);
+      return rows[0].image_url;
     } finally {
       conn.release();
     }
   }
 }
-
-export default new ProductImageService();

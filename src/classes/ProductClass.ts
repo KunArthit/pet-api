@@ -1,103 +1,65 @@
-import type { ResultSetHeader } from "mysql2/promise";
+// src/classes/ProductClass.ts
+import type { ResultSetHeader, RowDataPacket } from "mysql2/promise";
 import db from "../core/database";
-import type {
-  ProductModel,
-  ProductImageModel,
-  CreateProductInput,
-  UpdateProductInput,
-} from "../models/ProductModel";
 
 export default class ProductClass {
-  /**
-   * ดึงสินค้าทั้งหมด (รองรับ Filter เบื้องต้น)
-   * แก้ไข: ใช้ String Interpolation กับ LIMIT/OFFSET เพื่อแก้ปัญหา Mysql2 Error
-   */
-  async getAllProducts(
-    options: {
-      limit?: number;
-      offset?: number;
-      search?: string;
-      categoryId?: number;
-    } = {}
-  ): Promise<ProductModel[]> {
-    // 1. แปลงเป็นตัวเลขให้ชัวร์ก่อน (ถ้าแปลงไม่ได้ หรือเป็น NaN ให้ใช้ค่า Default)
+  // ==========================================
+  // 🟢 1. ดึงสินค้าทั้งหมด (ลบเงื่อนไข deleted_at ออก)
+  // ==========================================
+  async getAllProducts(options: { limit?: number; offset?: number; search?: string; categoryId?: number; } = {}) {
     const limit = parseInt(String(options.limit || 20), 10);
     const offset = parseInt(String(options.offset || 0), 10);
 
-    let query = `
-      SELECT * FROM products 
-      WHERE deleted_at IS NULL 
-    `;
+    let query = `SELECT * FROM products WHERE 1=1`;
     const params: any[] = [];
 
-    // Filter by Search
     if (options.search) {
       query += ` AND (name LIKE ? OR sku LIKE ?)`;
-      // ใส่ % รอบคำค้นหา
       params.push(`%${options.search}%`, `%${options.search}%`);
     }
 
-    // Filter by Category
-    // 2. เช็คว่าต้องเป็นตัวเลขและมากกว่า 0
     if (options.categoryId && !isNaN(Number(options.categoryId))) {
       query += ` AND category_id = ?`;
       params.push(Number(options.categoryId));
     }
 
-    // ✅ 3. แก้ไขจุดสำคัญ: ฝังตัวเลขลงไปใน SQL String เลย (ไม่ใช้ ?)
-    // เพื่อแก้ปัญหา "Incorrect arguments to mysqld_stmt_execute"
     query += ` ORDER BY created_at DESC LIMIT ${limit} OFFSET ${offset}`;
 
+    const conn = await db.getConnection();
     try {
-      const [rows] = await db.execute<ProductModel[]>(query, params);
+      const [rows] = await conn.query<RowDataPacket[]>(query, params);
       return rows;
-    } catch (error) {
-      console.error("Database Error:", error);
-      throw error;
+    } finally {
+      conn.release();
     }
   }
 
-  /**
-   * ดึงสินค้าตาม ID พร้อมรูป Gallery
-   */
-  async getProductById(
-    id: number
-  ): Promise<{ product: ProductModel; images: ProductImageModel[] } | null> {
-    // 1. ดึงตัวสินค้า
-    const [rows] = await db.execute<ProductModel[]>(
-      `SELECT * FROM products WHERE id = ? AND deleted_at IS NULL`,
-      [id]
-    );
-
-    if (rows.length === 0) return null;
-
-    // 2. ดึงรูป Gallery
-    const [images] = await db.execute<ProductImageModel[]>(
-      `SELECT * FROM product_images WHERE product_id = ? ORDER BY sort_order ASC`,
-      [id]
-    );
-
-    return {
-      product: rows[0],
-      images: images,
-    };
-  }
-
-  /**
-   * สร้างสินค้าใหม่
-   */
-  async createProduct(data: CreateProductInput): Promise<number> {
+  // ==========================================
+  // 🟢 2. ดึงรายละเอียดสินค้าตาม ID
+  // ==========================================
+  async getProductById(id: number) {
     const conn = await db.getConnection();
     try {
-      await conn.beginTransaction();
+      const [rows] = await conn.query<RowDataPacket[]>(`SELECT * FROM products WHERE id = ?`, [id]);
+      if (rows.length === 0) return null;
+      return rows[0];
+    } finally {
+      conn.release();
+    }
+  }
 
-      // 1. Insert Product
+  // ==========================================
+  // 🟢 3. สร้างสินค้าใหม่
+  // ==========================================
+  async createProduct(data: any): Promise<number> {
+    const conn = await db.getConnection();
+    try {
       const query = `
         INSERT INTO products 
         (category_id, name, slug, sku, description, price, stock_quantity, image_url, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      const [result] = await conn.execute<ResultSetHeader>(query, [
+      const [result] = await conn.query<ResultSetHeader>(query, [
         data.category_id || null,
         data.name,
         data.slug,
@@ -108,91 +70,68 @@ export default class ProductClass {
         data.image_url || null,
         data.is_active ?? 1,
       ]);
+      return result.insertId;
+    } finally {
+      conn.release();
+    }
+  }
 
-      const newProductId = result.insertId;
+  // ==========================================
+  // 🟢 4. อัปเดตสินค้า
+  // ==========================================
+  async updateProduct(id: number, data: any): Promise<boolean> {
+    const fields: string[] = [];
+    const values: any[] = [];
 
-      // 2. Insert Gallery Images (ถ้ามี)
-      if (data.gallery_images && data.gallery_images.length > 0) {
-        const imageValues = data.gallery_images.map((url, index) => [
-          newProductId,
-          url,
-          index, // sort_order
-        ]);
-
-        for (const [pId, url, order] of imageValues) {
-            await conn.execute(
-                `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`,
-                [pId, url, order]
-            );
-        }
+    const allowedFields = ["name", "slug", "sku", "description", "price", "stock_quantity", "image_url", "is_active", "category_id"];
+    
+    for (const field of allowedFields) {
+      if (data[field] !== undefined) {
+        fields.push(`${field} = ?`);
+        values.push(data[field]);
       }
+    }
+
+    if (fields.length === 0) return false;
+    fields.push("updated_at = NOW()");
+
+    const query = `UPDATE products SET ${fields.join(", ")} WHERE id = ?`;
+    values.push(id);
+
+    const conn = await db.getConnection();
+    try {
+      const [result] = await conn.query<ResultSetHeader>(query, values);
+      return result.affectedRows > 0;
+    } finally {
+      conn.release();
+    }
+  }
+
+  // ==========================================
+  // 💀 5. ลบสินค้า (Hard Delete) ส่ง URL Gallery กลับไปให้ Controller ลบไฟล์
+  // ==========================================
+  async deleteProduct(id: number): Promise<{ success: boolean; galleryUrls: string[] }> {
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // 1. ดึง URL รูปแกลเลอรีทั้งหมดออกมาก่อน
+      const [images] = await conn.query<RowDataPacket[]>(
+        `SELECT image_url FROM product_images WHERE product_id = ?`, [id]
+      );
+      const galleryUrls = images.map(img => img.image_url);
+
+      // 2. ลบออกจาก DB
+      await conn.query(`DELETE FROM product_images WHERE product_id = ?`, [id]);
+      const [result] = await conn.query<ResultSetHeader>(`DELETE FROM products WHERE id = ?`, [id]);
 
       await conn.commit();
-      return newProductId;
+      return { success: result.affectedRows > 0, galleryUrls };
     } catch (error) {
       await conn.rollback();
       throw error;
     } finally {
       conn.release();
     }
-  }
-
-  /**
-   * อัปเดตสินค้า
-   */
-  async updateProduct(id: number, data: UpdateProductInput): Promise<boolean> {
-    // สร้าง Dynamic Query Update
-    const fields: string[] = [];
-    const values: any[] = [];
-
-    if (data.name !== undefined) { fields.push("name = ?"); values.push(data.name); }
-    if (data.slug !== undefined) { fields.push("slug = ?"); values.push(data.slug); }
-    if (data.sku !== undefined) { fields.push("sku = ?"); values.push(data.sku); }
-    if (data.description !== undefined) { fields.push("description = ?"); values.push(data.description); }
-    if (data.price !== undefined) { fields.push("price = ?"); values.push(data.price); }
-    if (data.stock_quantity !== undefined) { fields.push("stock_quantity = ?"); values.push(data.stock_quantity); }
-    if (data.image_url !== undefined) { fields.push("image_url = ?"); values.push(data.image_url); }
-    if (data.is_active !== undefined) { fields.push("is_active = ?"); values.push(data.is_active); }
-    if (data.category_id !== undefined) { fields.push("category_id = ?"); values.push(data.category_id); }
-
-    if (fields.length === 0) return false;
-
-    // อัปเดต updated_at เสมอ
-    fields.push("updated_at = NOW()");
-
-    const query = `UPDATE products SET ${fields.join(", ")} WHERE id = ?`;
-    values.push(id);
-
-    const [result] = await db.execute<ResultSetHeader>(query, values);
-    return result.affectedRows > 0;
-  }
-
-  /**
-   * ลบสินค้า (Soft Delete)
-   */
-  async deleteProduct(id: number): Promise<boolean> {
-    const query = `UPDATE products SET deleted_at = NOW() WHERE id = ?`;
-    const [result] = await db.execute<ResultSetHeader>(query, [id]);
-    return result.affectedRows > 0;
-  }
-
-  // --- จัดการรูปภาพ Gallery แยกต่างหาก ---
-
-  /**
-   * เพิ่มรูปเข้า Gallery ทีหลัง
-   */
-  async addProductImage(productId: number, imageUrl: string, sortOrder: number = 0): Promise<boolean> {
-      const query = `INSERT INTO product_images (product_id, image_url, sort_order) VALUES (?, ?, ?)`;
-      const [result] = await db.execute<ResultSetHeader>(query, [productId, imageUrl, sortOrder]);
-      return result.affectedRows > 0;
-  }
-
-  /**
-   * ลบรูปออกจาก Gallery (Hard Delete เพราะเป็นแค่รูปย่อย)
-   */
-  async deleteProductImage(imageId: number): Promise<boolean> {
-      const query = `DELETE FROM product_images WHERE id = ?`;
-      const [result] = await db.execute<ResultSetHeader>(query, [imageId]);
-      return result.affectedRows > 0;
   }
 }

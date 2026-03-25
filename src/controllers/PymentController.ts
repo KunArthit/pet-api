@@ -5,11 +5,54 @@ import { AuthGuardClass } from "../classes/AuthGuardClass";
 import ActivityLogClass from "../classes/ActivityLogClass";
 import { jwtPlugin } from "../utils/jwt-plugin";
 import { join } from "path";
+import { existsSync, mkdirSync } from "fs"; 
+import sharp from "sharp"; 
 import { sendLineNotification } from "../services/lineService";
+import { log } from "console";
 
 const PaymentService = new PaymentClass();
 const AuthGuard = new AuthGuardClass();
 const LogService = new ActivityLogClass();
+
+// ==========================================
+// 📸 Helper Function: จัดการบีบอัดรูปสลิป
+// ==========================================
+async function uploadAndCompressSlip(file: File, paymentId: number): Promise<string> {
+  // ✅ 1. เปลี่ยนให้อยู่ในโฟลเดอร์ uploads ตรงๆ (ไม่มีโฟลเดอร์ slips แล้ว)
+  const uploadDir = join(process.cwd(), "public", "uploads");
+  
+  // ตรวจสอบและสร้างโฟลเดอร์ถ้ายังไม่มี
+  if (!existsSync(uploadDir)) {
+    mkdirSync(uploadDir, { recursive: true });
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+
+  const timestamp = Date.now();
+  // ✅ 2. ดึงชื่อไฟล์ดั้งเดิม (ลบนามสกุลเก่าออก) หรือตั้งชื่อ default ถ้าไม่มี
+  const originalName = file.name ? file.name.split('.')[0] : `slip${paymentId}`;
+
+  log("Original File Name:", file.name);
+  
+  // ✅ 3. ตั้งชื่อไฟล์ใหม่ตาม format: 1772694021886-ชื่อไฟล์.webp
+  const fileName = `${timestamp}-${originalName}.webp`; 
+  const uploadPath = join(uploadDir, fileName);
+
+  // สั่ง sharp บีบอัดสลิป 
+  await sharp(buffer)
+    .resize({ 
+      width: 1000, 
+      height: 1000,
+      fit: "inside", 
+      withoutEnlargement: true 
+    })
+    .webp({ quality: 80 }) // ยังคงบีบเป็น .webp เพื่อให้ไฟล์เล็กและโหลดเร็วที่สุด
+    .toFile(uploadPath);
+
+  // ✅ 4. คืนค่า URL แบบตรงๆ ไม่มี /slips/
+  return `/uploads/${fileName}`;
+}
 
 const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] })
 
@@ -18,15 +61,11 @@ const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] }
   // ============================================================
   .post("/webhook", async ({ body, request, set }) => {
     try {
-      // 💡 อนาคต: ตรงนี้ต้องตรวจสอบ Webhook Signature จากธนาคารเพื่อกันคนอื่นยิงมั่ว
-      
-      const payload = body as any; // ข้อมูลที่ธนาคารส่งกลับมา
+      const payload = body as any; 
 
       if (payload.status === "successful") {
-        // เรียกฟังก์ชันยืนยันการจ่ายเงิน
         await PaymentService.confirmPaymentSuccess(payload.payment_id, payload.order_id);
         
-        // 📝 บันทึก Log การจ่ายเงินสำเร็จ
         await LogService.createLog({
           user_id: payload.user_id || "SYSTEM", 
           action: "PAYMENT_SUCCESS",
@@ -38,7 +77,6 @@ const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] }
         });
 
       } else if (payload.status === "failed") {
-        // 📝 บันทึก Log การจ่ายเงินล้มเหลว
         await LogService.createLog({
           user_id: payload.user_id || "SYSTEM", 
           action: "PAYMENT_FAILED",
@@ -63,15 +101,13 @@ const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] }
   // ============================================================
   .use(jwtPlugin)
 
-  // 🔵 2. ขอ Link ชำระเงินซ้ำ (กรณี User ปิดหน้าจ่ายเงินทิ้งไป แล้วกลับมากดจ่ายใหม่ในหน้า "ประวัติคำสั่งซื้อ")
-  // 🔵 1. ขอข้อมูลชำระเงิน (รองรับ QR)
+  // 🔵 ขอข้อมูลชำระเงิน (รองรับ QR)
   .post("/pay", async ({ body, request, jwt, set }) => {
     const user = await AuthGuard.validate(request, jwt);
     if (!user) { set.status = 401; return { success: false, message: "Unauthorized" }; }
 
     try {
       const result = await PaymentService.createPaymentSession(body.order_id, user.id, body.amount, body.payment_method);
-
       return { success: true, message: "Payment session retrieved", data: result };
     } catch (error) {
       console.error("Payment Init Error:", error);
@@ -95,35 +131,21 @@ const PaymentController = new Elysia({ prefix: "/payments", tags: ["Payments"] }
       const paymentId = Number(params.id);
       const file = body.slip_image;
 
-      // ตรวจสอบว่าแนบไฟล์มาจริงไหม
       if (!file || file.size === 0) {
         set.status = 400;
         return { success: false, message: "Please upload a valid image file." };
       }
 
-      // 1. ตั้งชื่อไฟล์ใหม่ให้ไม่ซ้ำ (เช่น slip_1_1690000000.png)
-      const ext = file.name.split('.').pop();
-      const fileName = `slip_${paymentId}_${Date.now()}.${ext}`;
+      // ✅ อัปโหลดสลิปและได้ URL รูปแบบ /uploads/177...-filename.webp
+      const slipUrl = await uploadAndCompressSlip(file as File, paymentId);
       
-      // 2. กำหนดที่เก็บไฟล์ (อย่าลืมไปสร้างโฟลเดอร์ public/uploads/slips ไว้ด้วยนะครับ!)
-      const uploadPath = join(process.cwd(), "public", "uploads", "slips", fileName);
-      
-      // 3. ใช้ Bun.write เซฟไฟล์ลงดิสก์
-      await Bun.write(uploadPath, file);
-      
-      // 4. URL ที่จะเก็บลง Database (เพื่อให้ Frontend เอาไปดึงรูปแสดงได้)
-      const slipUrl = `/uploads/slips/${fileName}`;
-      
-      // วันที่เวลาที่โอน (ถ้าผู้ใช้ไม่ได้ระบุมา ให้ใช้เวลาปัจจุบัน)
       const transferDate = body.transfer_at ? new Date(body.transfer_at) : new Date();
 
-      // 5. บันทึกลง Database
       await PaymentService.uploadSlip(paymentId, user.id, slipUrl, transferDate);
 
       // ====================================================
       // 🔔 LINE Notification
       // ====================================================
-
       const slipLink = `https://yoursite.com${slipUrl}`;
       const adminUrl = `https://admin.yoursite.com/payments/${paymentId}`;
 
@@ -143,7 +165,6 @@ Payment : #${paymentId}
         console.error("LINE notification failed:", err);
       }
 
-      // 📝 เก็บ Log
       await LogService.createLog({
         user_id: user.id,
         action: "UPLOAD_SLIP",
@@ -160,13 +181,13 @@ Payment : #${paymentId}
 
     } catch (error: any) {
       console.error("Upload Slip Error:", error);
-      set.status = error.message.includes("not found") ? 404 : 500;
+      set.status = error.message && error.message.includes("not found") ? 404 : 500;
       return { success: false, message: error.message || "Failed to upload slip" };
     }
   }, {
     body: t.Object({
-      slip_image: t.File(), // 📌 รับค่าเป็น File
-      transfer_at: t.Optional(t.String()) // รับเวลาที่โอนมาด้วย (ถ้ามี)
+      slip_image: t.File(), 
+      transfer_at: t.Optional(t.String()) 
     })
   });
 

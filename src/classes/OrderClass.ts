@@ -114,14 +114,16 @@ export default class OrderClass {
             order_id, product_id, product_name, product_sku, product_image, quantity, price
           ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [
-            newOrderId,
-            item.product_id,
-            item.name,
-            item.sku,
-            item.image_url,
-            item.quantity,
-            item.price,
+            newOrderId, item.product_id, item.name, item.sku,
+            item.image_url, item.quantity, item.price,
           ]
+        );
+
+        // ✅ สิ่งที่ต้องเพิ่ม: ตัดสต็อกสินค้า
+        // ใช้ SET stock_quantity = GREATEST(stock_quantity - ?, 0) เพื่อป้องกันสต็อกติดลบ
+        await conn.query(
+          `UPDATE products SET stock_quantity = GREATEST(stock_quantity - ?, 0), updated_at = NOW() WHERE id = ?`,
+          [item.quantity, item.product_id]
         );
       }
 
@@ -304,16 +306,39 @@ export default class OrderClass {
     }
   }
 
- // 👑 [Admin] อัปเดตสถานะคำสั่งซื้อ (รองรับการยกเลิกพร้อมเหตุผล)
+ // 👑 [Admin] อัปเดตสถานะคำสั่งซื้อ (รองรับการยกเลิก + คืนสต็อก)
   async updateOrderStatus(orderId: number, status: string, cancelReason: string | null = null): Promise<boolean> {
     const conn = await db.getConnection();
     try {
+      await conn.beginTransaction();
+
+      // 1. อัปเดตสถานะ Order
       const [result] = await conn.query<ResultSetHeader>(
         `UPDATE orders SET status = ?, cancel_reason = ?, updated_at = NOW() WHERE id = ?`,
         [status, status === 'cancelled' ? cancelReason : null, orderId]
       );
+
+      // 2. ✅ ถ้าสถานะเป็น 'cancelled' ต้องคืนสต็อกสินค้า!
+      if (status === 'cancelled') {
+        // ดึงรายการสินค้าทั้งหมดในบิลนี้ออกมา
+        const [items] = await conn.query<RowDataPacket[]>(
+          `SELECT product_id, quantity FROM order_items WHERE order_id = ? AND product_id IS NOT NULL`,
+          [orderId]
+        );
+
+        // วนลูปคืนสต็อกกลับให้ตาราง products
+        for (const item of items) {
+          await conn.query(
+            `UPDATE products SET stock_quantity = stock_quantity + ?, updated_at = NOW() WHERE id = ?`,
+            [item.quantity, item.product_id]
+          );
+        }
+      }
+
+      await conn.commit();
       return result.affectedRows > 0;
     } catch (error) {
+      await conn.rollback();
       console.error("Failed to update order status:", error);
       return false;
     } finally {
