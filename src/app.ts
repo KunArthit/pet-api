@@ -5,6 +5,7 @@ import { Elysia } from "elysia";
 import { swagger } from "@elysiajs/swagger";
 import { apiRouter } from "./api";
 import { cors } from "@elysiajs/cors";
+import { consentRoute } from "./routes/consent";
 import staticPlugin from "@elysiajs/static"; // ✅ default export สำหรับ static plugin
 
 export const app = new Elysia()
@@ -51,6 +52,7 @@ export const app = new Elysia()
 
   // 🔌 API router
   .use(apiRouter({ prefix: "/api" }))
+  .use(consentRoute)
 
   // 📜 Swagger documentation
   .use(
