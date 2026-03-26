@@ -3,44 +3,12 @@ import { Elysia, t } from "elysia";
 import ProductClass from "../classes/ProductClass";
 import ProductImagesClass from "../classes/ProductImagesClass"; 
 import { authGuard } from "../middlewares/authMiddleware";
-import sharp from "sharp";
 import { join } from "path";
-import { existsSync, mkdirSync } from "fs";
-import { unlink } from "fs/promises"; // นำเข้า unlink สำหรับลบไฟล์จริง
+import { unlink } from "fs/promises";
+import { processAndSaveFile } from "../upload"; // ✅ นำเข้าจาก upload.ts
 
 const ProductService = new ProductClass();
 const ImageService = new ProductImagesClass();
-
-// ==========================================
-// 📸 Helper Function: บีบอัดรูปภาพด้วย sharp (ปรับ Path และชื่อไฟล์ใหม่)
-// ==========================================
-async function uploadAndCompressImage(file: File, prefix: string = "product"): Promise<string> {
-  // ✅ 1. ย้ายมาเก็บที่โฟลเดอร์ uploads ชั้นนอกสุด (ไม่แยกโฟลเดอร์ products แล้ว)
-  const uploadDir = join(process.cwd(), "public", "uploads");
-  if (!existsSync(uploadDir)) {
-    mkdirSync(uploadDir, { recursive: true });
-  }
-
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
-
-  const timestamp = Date.now();
-  
-  // ✅ 2. ดึงชื่อไฟล์ดั้งเดิม (ถ้าไม่มีให้ใช้ prefix แทน)
-  const originalName = file.name ? file.name.split('.')[0] : prefix;
-  
-  // ✅ 3. ตั้งชื่อไฟล์ใหม่ตาม format: 1772694021886-ชื่อไฟล์เดิม.webp
-  const fileName = `${timestamp}-${originalName}.webp`; 
-  const uploadPath = join(uploadDir, fileName);
-
-  await sharp(buffer)
-    .resize(800, 800, { fit: "inside", withoutEnlargement: true })
-    .webp({ quality: 80 })
-    .toFile(uploadPath);
-
-  // ✅ 4. คืนค่า URL เป็นรูปแบบ /uploads/177...-filename.webp
-  return `/uploads/${fileName}`;
-}
 
 const productController = new Elysia({
   prefix: "/products",
@@ -84,20 +52,18 @@ const productController = new Elysia({
     params: t.Object({ id: t.String() }),
   })
 
-  // ------------------------------------------
-  // 🔒 โซน Admin (ต้อง Login)
-  // ------------------------------------------
   .use(authGuard)
 
   // ==========================================
-  // 👑 3. Create Product (สร้างพร้อมอัปโหลดรูป)
+  // 👑 3. Create Product
   // ==========================================
   .post("/", async ({ body, set }) => {
     try {
       let mainImageUrl = null;
 
+      // ✅ 1. นำไฟล์รูปปกส่งเข้าท่อ processAndSaveFile
       if (body.image && body.image.size > 0) {
-        mainImageUrl = await uploadAndCompressImage(body.image as File, "prod_main");
+        mainImageUrl = await processAndSaveFile(body.image as File);
       }
 
       const productId = await ProductService.createProduct({
@@ -112,14 +78,13 @@ const productController = new Elysia({
         is_active: body.is_active ?? 1,
       });
 
+      // ✅ 2. นำไฟล์รูปแกลเลอรีส่งเข้าท่อ processAndSaveFile
       if (body.gallery_images) {
-        // เผื่อกรณีส่งมาไฟล์เดียว (Elysia อาจมองไม่เป็น Array)
         const galleryFiles = Array.isArray(body.gallery_images) ? body.gallery_images : [body.gallery_images];
-        
         for (let i = 0; i < galleryFiles.length; i++) {
           const file = galleryFiles[i] as File;
           if (file.size > 0) {
-            const galleryUrl = await uploadAndCompressImage(file, `prod_gal_${productId}`);
+            const galleryUrl = await processAndSaveFile(file);
             await ImageService.createImage({
               product_id: productId,
               image_url: galleryUrl,
@@ -137,6 +102,7 @@ const productController = new Elysia({
       return { success: false, message: "Failed to create product" };
     }
   }, {
+    // ⚠️ กลับมารับ File เพื่อรองรับ Form Data จากหน้าบ้าน
     body: t.Object({
       name: t.String(),
       slug: t.Optional(t.String()),
@@ -152,7 +118,7 @@ const productController = new Elysia({
   })
 
   // ==========================================
-  // 👑 4. Update Product
+  // 👑 4. Update Product (แก้ 500 Error ตรงนี้)
   // ==========================================
   .put("/:id", async ({ params, body, set }) => {
     try {
@@ -167,15 +133,14 @@ const productController = new Elysia({
         is_active: body.is_active,
       };
 
+      // ✅ จัดการรูป: ถ้ามีไฟล์มา ให้เซฟไฟล์ใหม่ ถ้ามี URL เปล่าๆ มา ให้เคลียร์รูป
       if (body.image && body.image.size > 0) {
-        // รูปหลักเปลี่ยนได้เลย ไฟล์เก่าทิ้งไว้ให้ Order Snapshot
-        updateData.image_url = await uploadAndCompressImage(body.image as File, "prod_main");
+        updateData.image_url = await processAndSaveFile(body.image as File);
       } else if (body.image_url !== undefined) {
-        // ✅ รับค่า image_url ตรงๆ (เช่น "" เพื่อ clear รูปปก)
         updateData.image_url = body.image_url;
       }
 
-      // ล้างค่าที่ไม่ได้ส่งมาออก
+      // ล้างข้อมูลที่ไม่ได้ส่งมา
       Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
 
       const success = await ProductService.updateProduct(Number(params.id), updateData);
@@ -192,37 +157,33 @@ const productController = new Elysia({
       name: t.Optional(t.String()),
       slug: t.Optional(t.String()),
       sku: t.Optional(t.String()),
-      category_id: t.Optional(t.Numeric()),
+      category_id: t.Optional(t.Numeric()), // ⚠️ บังคับแปลง String จาก FormData เป็น Number
       description: t.Optional(t.String()),
       price: t.Optional(t.Numeric()),
       stock_quantity: t.Optional(t.Numeric()),
       is_active: t.Optional(t.Numeric()),
-      image: t.Optional(t.File()),
-      image_url: t.Optional(t.String()), // ✅ รับ "" เพื่อ clear รูปปก
+      image: t.Optional(t.File()), // ✅ ยอมรับไฟล์ (ที่เห็นในรูป payload)
+      image_url: t.Optional(t.String()), 
     }),
   })
 
   // ==========================================
-  // 💀 5. Delete Product (Hard Delete + ล้างไฟล์ขยะ)
+  // 💀 5. Delete Product
   // ==========================================
   .delete("/:id", async ({ params, set }) => {
     try {
       const { success, galleryUrls } = await ProductService.deleteProduct(Number(params.id));
-      
       if (!success) {
           set.status = 404;
           return { success: false, message: "Product not found" };
       }
 
-      // 🧹 ลบไฟล์แกลเลอรีทิ้งจาก Server (รูปหลักรอด เพราะไม่ถูกส่งมาในนี้)
       for (const url of galleryUrls) {
         if (url) {
-          // url ตอนนี้เป็น /uploads/177...webp โค้ดด้านล่างจะวิ่งไปลบได้ถูกต้องครับ
-          const filePath = join(process.cwd(), "public", url);
+          const filePath = join("/app", url); 
           await unlink(filePath).catch(() => console.log("File not found, skipping:", url));
         }
       }
-
       return { success: true, message: "Product deleted and gallery files removed" };
     } catch (error) {
       set.status = 500;
@@ -242,7 +203,8 @@ const productController = new Elysia({
         return { success: false, message: "No image file provided" };
       }
 
-      const imageUrl = await uploadAndCompressImage(body.image as File, "prod_gal");
+      // ✅ นำไฟล์เข้าท่อประมวลผล
+      const imageUrl = await processAndSaveFile(body.image as File);
 
       const newImageId = await ImageService.createImage({
         product_id: Number(params.id),
@@ -258,25 +220,22 @@ const productController = new Elysia({
   }, {
     params: t.Object({ id: t.String() }),
     body: t.Object({
-      image: t.File(), 
+      image: t.File(), // ✅ กลับมารับ File ตรงๆ
       sort_order: t.Optional(t.Numeric()),
     }),
   })
 
   // ==========================================
-  // 💀 7. ลบรูป Gallery ตาม imageId (ลบไฟล์จริงด้วย!)
+  // 💀 7. ลบรูป Gallery ตาม imageId
   // ==========================================
   .delete("/images/:imageId", async ({ params, set }) => {
     try {
       const deletedUrl = await ImageService.deleteImage(Number(params.imageId));
-      
       if(!deletedUrl) {
           set.status = 404;
           return { success: false, message: "Image not found" };
       }
-
-      // 🧹 ตามไปลบไฟล์จริงออกจาก Server ทันที
-      const filePath = join(process.cwd(), "public", deletedUrl);
+      const filePath = join("/app", deletedUrl);
       await unlink(filePath).catch(() => console.log("Physical file not found:", deletedUrl));
 
       return { success: true, message: "Image removed from gallery and server" };
